@@ -1,3 +1,10 @@
+
+I kinda wanna do the same but more ??
+
+-------------------
+
+I stole/cloned this from:
+
 # Deception Detection
 Code for the paper [Detecting Strategic Deception Using Linear Probes](https://arxiv.org/abs/2502.03407).
 
