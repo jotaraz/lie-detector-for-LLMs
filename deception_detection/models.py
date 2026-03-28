@@ -17,8 +17,8 @@ from deception_detection.log import logger
 
 # We only use the instruct variations of the models. Note not all sizes are available for all model
 # families.
-ModelType = Literal["gemma", "mistral", "llama"]
-ModelSize = Literal[1, 2, 3, 7, 8, 9, 27, 70]
+ModelType = Literal["gemma", "gemma3", "mistral", "llama", "qwen"]
+ModelSize = Literal[1, 2, 3, 7, 8, 9, 12, 27, 32, 70]
 
 
 class ModelName(str, Enum):
@@ -31,6 +31,8 @@ class ModelName(str, Enum):
     LLAMA_8B = "llama-8b"
     LLAMA_70B = "llama-70b"
     LLAMA_70B_3_3 = "llama-70b-3.3"
+    GEMMA3_12B = "gemma3-12b"
+    QWEN_32B = "qwen-32b"
 
     @property
     def type(self) -> ModelType:
@@ -53,8 +55,12 @@ def get_model_name(model_name: ModelName) -> str:
 def get_num_layers_for_model(model_name: ModelName) -> int:
     if model_name.type == "gemma":
         n_layers = {2: 26, 7: 32, 9: 42, 27: 46}
+    elif model_name.type == "gemma3":
+        n_layers = {12: 48}
     elif model_name.type == "llama":
         n_layers = {1: 16, 3: 28, 8: 32, 70: 80, 405: 126}
+    elif model_name.type == "qwen":
+        n_layers = {32: 64}
     else:
         raise NotImplementedError(f"No number of layers for model {model_name}")
     return n_layers[model_name.size]
@@ -104,12 +110,16 @@ def get_model_and_tokenizer(
         model, tokenizer = get_gemma_model_and_tokenizer(
             model_name, omit_model, pw_locked, lora_path
         )
+    elif model_name.type == "gemma3":
+        model, tokenizer = get_gemma3_model_and_tokenizer(model_name, omit_model)
     elif model_name.type == "mistral":
         model, tokenizer = get_mistral_model_and_tokenizer(
             model_name, omit_model, pw_locked, lora_path
         )
     elif model_name.type == "llama":
         model, tokenizer = get_llama3_model_and_tokenizer(model_name, omit_model)
+    elif model_name.type == "qwen":
+        model, tokenizer = get_qwen_model_and_tokenizer(model_name, omit_model)
     else:
         raise ValueError(f"Invalid model type: {model_name.type}")
 
@@ -153,8 +163,7 @@ def get_gemma_model_and_tokenizer(
         device_map="auto",
         attn_implementation="eager",
         torch_dtype=dtype,
-        cache_dir=Path("/data/huggingface"),
-        local_files_only=True,
+        cache_dir=Path.home() / ".cache/huggingface",
     )
 
     logger.info(f"Loaded model {model_name}")
@@ -242,15 +251,66 @@ def get_llama3_model_and_tokenizer(
         ModelName.LLAMA_70B: "meta-llama/Meta-Llama-3.1-70B-Instruct",
         ModelName.LLAMA_8B: "meta-llama/Meta-Llama-3.1-8B-Instruct",
     }[model_name]
-    models_directory = Path("/data/huggingface")
-
     model = AutoModelForCausalLM.from_pretrained(
         model_path,
         torch_dtype=torch.float16,
         device_map="auto",
-        cache_dir=models_directory,
-        local_files_only=True,
+        cache_dir=Path.home() / ".cache/huggingface",
     )
     model.eval()
 
+    return model, tokenizer
+
+
+@cache
+def get_gemma3_model_and_tokenizer(
+    model_name: ModelName, omit_model: bool = False
+) -> tuple[PreTrainedModel | None, PreTrainedTokenizerBase]:
+    """Return Gemma 3 model and tokenizer"""
+    if not model_name.type == "gemma3":
+        raise ValueError(f"Expected Gemma3 model, got {model_name}")
+
+    hf_name = f"google/gemma-3-{model_name.size}b-it"
+    tokenizer = AutoTokenizer.from_pretrained(hf_name, padding_side="left")
+    tokenizer.pad_token_id = tokenizer.bos_token_id
+
+    if omit_model:
+        return None, tokenizer
+
+    model = AutoModelForCausalLM.from_pretrained(
+        hf_name,
+        device_map="auto",
+        attn_implementation="eager",
+        torch_dtype=torch.bfloat16,
+        cache_dir=Path.home() / ".cache/huggingface",
+    )
+    model.eval()
+    return model, tokenizer
+
+
+@cache
+def get_qwen_model_and_tokenizer(
+    model_name: ModelName, omit_model: bool = False
+) -> tuple[PreTrainedModel | None, PreTrainedTokenizerBase]:
+    """Return Qwen model and tokenizer"""
+    if not model_name.type == "qwen":
+        raise ValueError(f"Expected Qwen model, got {model_name}")
+
+    model_path = {
+        ModelName.QWEN_32B: "Qwen/Qwen2.5-32B-Instruct",
+    }[model_name]
+
+    tokenizer = AutoTokenizer.from_pretrained(model_path, padding_side="left")
+    tokenizer.pad_token_id = tokenizer.bos_token_id
+
+    if omit_model:
+        return None, tokenizer
+
+    model = AutoModelForCausalLM.from_pretrained(
+        model_path,
+        device_map="auto",
+        torch_dtype=torch.bfloat16,
+        cache_dir=Path.home() / ".cache/huggingface",
+    )
+    model.eval()
     return model, tokenizer
