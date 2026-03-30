@@ -124,7 +124,11 @@ def get_model_and_tokenizer(
         raise ValueError(f"Invalid model type: {model_name.type}")
 
     if cut_at_layer is not None and model is not None:
-        model.model.layers = model.model.layers[:cut_at_layer]
+        if model_name.type == "gemma3":
+            # Gemma3ForConditionalGeneration wraps Gemma3Model (multimodal) which wraps Gemma3TextModel
+            model.model.language_model.layers = model.model.language_model.layers[:cut_at_layer]
+        else:
+            model.model.layers = model.model.layers[:cut_at_layer]
 
     return model, tokenizer
 
@@ -229,7 +233,8 @@ def get_mistral_model_and_tokenizer(
 
 @cache
 def get_llama3_tokenizer() -> PreTrainedTokenizerBase:
-    tokenizer_name = "meta-llama/Meta-Llama-3.1-70B-Instruct"
+    load_dotenv()
+    tokenizer_name = "meta-llama/Llama-3.3-70B-Instruct"
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_name, padding_side="left")
     tokenizer.pad_token_id = tokenizer.bos_token_id
     return tokenizer
@@ -270,6 +275,7 @@ def get_gemma3_model_and_tokenizer(
     if not model_name.type == "gemma3":
         raise ValueError(f"Expected Gemma3 model, got {model_name}")
 
+    load_dotenv()
     hf_name = f"google/gemma-3-{model_name.size}b-it"
     tokenizer = AutoTokenizer.from_pretrained(hf_name, padding_side="left")
     tokenizer.pad_token_id = tokenizer.bos_token_id
@@ -285,7 +291,41 @@ def get_gemma3_model_and_tokenizer(
         cache_dir=Path.home() / ".cache/huggingface",
     )
     model.eval()
+    _patch_gemma3_hidden_states(model)
     return model, tokenizer
+
+
+def _patch_gemma3_hidden_states(model: "PreTrainedModel") -> None:
+    """Patch Gemma3ForConditionalGeneration to support output_hidden_states=True.
+
+    Gemma3TextModel.forward doesn't accumulate intermediate hidden states, so we
+    wrap it with a version that uses forward hooks to collect them."""
+
+    text_model = model.model.language_model  # Gemma3TextModel
+    _orig = text_model.forward
+
+    def patched_forward(**kwargs):
+        output_hidden_states = kwargs.pop("output_hidden_states", False)
+        if not output_hidden_states:
+            return _orig(**kwargs)
+
+        all_hidden_states: list = []
+
+        def hook_fn(module, inp, out):
+            tensor = out[0] if isinstance(out, tuple) else out
+            all_hidden_states.append(tensor)
+
+        handles = [layer.register_forward_hook(hook_fn) for layer in text_model.layers]
+        try:
+            result = _orig(**kwargs)
+        finally:
+            for h in handles:
+                h.remove()
+
+        result.hidden_states = (None,) + tuple(all_hidden_states)
+        return result
+
+    text_model.forward = patched_forward
 
 
 @cache
@@ -296,12 +336,13 @@ def get_qwen_model_and_tokenizer(
     if not model_name.type == "qwen":
         raise ValueError(f"Expected Qwen model, got {model_name}")
 
+    load_dotenv()
     model_path = {
         ModelName.QWEN_32B: "Qwen/Qwen2.5-32B-Instruct",
     }[model_name]
 
     tokenizer = AutoTokenizer.from_pretrained(model_path, padding_side="left")
-    tokenizer.pad_token_id = tokenizer.bos_token_id
+    tokenizer.pad_token_id = tokenizer.eos_token_id
 
     if omit_model:
         return None, tokenizer

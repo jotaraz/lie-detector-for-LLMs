@@ -23,6 +23,7 @@ class RolePlayingDataset(DialogueDataset):
         "gemma": {"left": 0, "right": 0},
         "mistral": {"left": 0, "right": 0},
         "llama": {"left": 0, "right": 0},
+        "qwen": {"left": 0, "right": 0},
     }
 
     def _load_yaml(self) -> list[dict[str, str]]:
@@ -99,7 +100,8 @@ class RolePlayingDataset(DialogueDataset):
     @classmethod
     def _get_label_from_judgement(cls, judgement: Judgement) -> Label:
         if isinstance(judgement, str):
-            assert judgement.isdigit(), f"Judgement must be a digit {judgement}"
+            if not judgement.isdigit():
+                return Label.SKIP  # grader returned non-numeric (e.g. "unknown")
             judgement = int(judgement)
         assert isinstance(judgement, int)
         if judgement >= 6:

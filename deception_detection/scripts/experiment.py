@@ -21,30 +21,51 @@ def run(
     if not config_file.exists():
         config_file = REPO_ROOT / "deception_detection/scripts/configs" / config_file
         if not config_file.exists():
-            config_file = config_file.with_suffix(".yaml")
+            config_file = config_file.parent / (config_file.name + ".yaml")
         if not config_file.exists():
             raise FileNotFoundError("Config file not found")
+
+    print(f"[experiment] Loading config: {config_file}")
     with open(config_file) as file:
         config_dict = yaml.safe_load(file)
 
     config_dict |= kwargs
     config = ExperimentConfig(**config_dict)  # type: ignore[reportGeneralTypeIssues]
+    print(f"[experiment] Model   : {config.model_name.value}")
+    print(f"[experiment] Method  : {config.method}")
+    print(f"[experiment] Train   : {config.train_data}")
+    print(f"[experiment] Eval    : {config.eval_data}")
+    print(f"[experiment] Layers  : {config.detect_layers}")
+    print(f"[experiment] Results folder: {config.folder}")
+
     try:
+        print(f"[experiment] Initializing experiment (loading tokenizer, datasets)...")
         experiment = Experiment(config)
+        print(f"[experiment] Saving detection masks...")
         save_detection_masks(experiment)
+        print(f"[experiment] Training / loading detector...")
         experiment.get_detector()
+        print(f"[experiment] Detector ready.")
     except Exception as err:
+        print(f"[experiment] ERROR during setup: {err}")
         # cleanup experiment folder and any files inside it
         for f in config.folder.iterdir():
             f.unlink()
         config.folder.rmdir()
         raise err
+
+    print(f"[experiment] Computing eval scores...")
     experiment.get_eval_scores()
+    print(f"[experiment] Computing control scores...")
     experiment.get_control_scores()
-    # Print max memory usage
+
     max_memory = torch.cuda.max_memory_allocated() / 1024**3  # Convert to GB
+    print(f"[experiment] Max GPU memory usage: {max_memory:.2f} GB")
     logger.info(f"Max GPU memory usage: {max_memory:.2f} GB")
+
+    print(f"[experiment] Computing final results...")
     results(str(experiment.cfg.folder), scoring_method="mean")
+    print(f"[experiment] Experiment complete: {experiment.cfg.name}")
 
 
 def rerun(folder: str, scoring_method: Literal["mean", "max", "relu"] = "mean"):

@@ -120,6 +120,11 @@ class ExperimentConfig(BaseModel):
 
     use_followup_question: bool = False
 
+    # Memory / performance tuning
+    cut_at_layer: int | None = None  # overrides detect_layers[-1] for model truncation
+    activation_batch_size: int = 4   # batch size for forward passes collecting activations
+    shard_size: int | None = None    # fallback shard size for scoring; None means use default (12)
+
     # Experiment identification and storage
     id: str = ""
     timestamp: str = Field(default_factory=lambda: datetime.now().strftime("%Y%m%d_%H%M%S"))
@@ -266,11 +271,19 @@ class Experiment:
         """
         self.cfg = cfg
         self._model = None  # Store actual model in _model attribute
+        print(f"[experiment] Loading tokenizer for {cfg.model_name.value}...")
         _, tokenizer = get_model_and_tokenizer(cfg.model_name, omit_model=True)
         self.tokenizer = tokenizer
+        print(f"[experiment] Tokenizer ready.")
+        print(f"[experiment] Loading train dataset '{cfg.train_data}'...")
         self.train_dataset = self.get_train_dataset()
+        print(f"[experiment] Train dataset: {len(self.train_dataset)} samples.")
+        print(f"[experiment] Loading eval datasets {cfg.eval_data}...")
         self.eval_datasets = self.get_eval_datasets()
+        print(f"[experiment] Eval datasets loaded: {[f'{d.name} ({len(d)})' for d in self.eval_datasets]}")
+        print(f"[experiment] Loading control datasets {cfg.control_data}...")
         self.control_datasets = self.get_control_datasets()
+        print(f"[experiment] Control datasets loaded: {[f'{d.name} ({len(d)})' for d in self.control_datasets]}")
         assert self.cfg.folder.exists(), f"Folder {self.cfg.folder} does not exist"
 
     # ----- DETECTOR ----- #
@@ -282,8 +295,10 @@ class Experiment:
         detector_class = get_detector_class(self.cfg.method)
 
         if path.exists():
+            print(f"[experiment] Loading saved detector from {path}")
             return detector_class.load(path)
 
+        print(f"[experiment] No saved detector found, training new one...")
         logger.info("Training detector")
 
         split_paired_acts = PairedActivations.from_dataset(
@@ -294,6 +309,7 @@ class Experiment:
             detect_only_last_token=self.cfg.detect_only_last_token,
             layers=self.cfg.detect_layers,
             use_goodfire_sae_acts=self.cfg.use_goodfire_sae_acts,
+            batch_size=self.cfg.activation_batch_size,
         )
         honest_fit_acts, deceptive_fit_acts = split_paired_acts.get_all_acts()
 
@@ -312,6 +328,7 @@ class Experiment:
         out_file = self.cfg.folder / "detector.pt"
         logger.info(f"Saving detector to {out_file}")
         detector.save(out_file)
+        print(f"[experiment] Detector trained and saved to {out_file}")
         return detector
 
     # ----- DATASETS ----- #
@@ -406,7 +423,9 @@ class Experiment:
 
         if not path.exists():
             logger.info("Computing control scores")
+            print(f"[experiment] Computing control scores (not cached)...")
             self.compute_control_scores()
+            print(f"[experiment] Control scores saved to {path}")
 
         with open(path) as f:
             raw_scores = json.load(f)
@@ -422,7 +441,9 @@ class Experiment:
         path = self.cfg.folder / file_name
         if not path.exists():
             logger.info("Computing scores")
+            print(f"[experiment] Computing eval scores (not cached)...")
             self.compute_eval_scores()
+            print(f"[experiment] Eval scores saved to {path}")
         with open(path) as f:
             raw_scores = json.load(f)
         for name, scores in raw_scores.items():
@@ -467,7 +488,7 @@ class Experiment:
         all_scores_all_tokens = {}
         for dataset in tqdm(datasets, desc=f"{'Control' if is_control else 'Eval'} Datasets"):
             shard_size = (
-                None if self.cfg.use_goodfire_sae_acts else shard_sizes.get(dataset.name, 12)
+                None if self.cfg.use_goodfire_sae_acts else shard_sizes.get(dataset.name, self.cfg.shard_size if self.cfg.shard_size is not None else 12)
             )
             scores, scores_all_tokens = self.compute_scores_for_dataset(dataset, shard_size)
             all_scores[dataset.name] = scores
@@ -541,7 +562,7 @@ class Experiment:
                 acts.apply_sae_latent_mask(self.cfg.sae_latent_whitelist)
             return acts
 
-        acts = Activations.from_model(self.model, toks, batch_size=4, layers=self.cfg.detect_layers)
+        acts = Activations.from_model(self.model, toks, batch_size=self.cfg.activation_batch_size, layers=self.cfg.detect_layers)
         if self.cfg.use_local_sae_acts:
             acts = self.to_local_sae_acts(acts)
 
@@ -653,10 +674,12 @@ class Experiment:
     def model(self) -> PreTrainedModel:
         """Lazily load the model when first accessed."""
         if self._model is None:
+            print(f"[experiment] Loading model {self.cfg.model_name.value} onto GPU (this may take a while)...")
             model, _ = get_model_and_tokenizer(
                 self.cfg.model_name,
                 pw_locked=self.cfg.pw_locked,
-                cut_at_layer=self.cfg.detect_layers[-1],
+                cut_at_layer=self.cfg.cut_at_layer if self.cfg.cut_at_layer is not None else self.cfg.detect_layers[-1],
             )
             self._model = model
+            print(f"[experiment] Model {self.cfg.model_name.value} loaded onto GPU.")
         return self._model

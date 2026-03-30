@@ -37,10 +37,25 @@ def generate_rollouts(
             either "honest" or "deceptive" based on the 'expected deception value' taken from the
             original datset.
     """
-    model, tokenizer = get_model_and_tokenizer(model_name, omit_model=use_api)
+    if isinstance(model_name, str):
+        model_name = ModelName(model_name)
+    print(f"[generate_rollouts] Starting rollout generation")
+    print(f"[generate_rollouts]   dataset : {dataset_partial_id}")
+    print(f"[generate_rollouts]   model   : {model_name.value}")
+    print(f"[generate_rollouts]   mode    : {'API (Together)' if use_api else 'local GPU'}")
+    print(f"[generate_rollouts]   rollouts per prompt: {num}")
+    if max_prompts:
+        print(f"[generate_rollouts]   max prompts: {max_prompts}")
 
+    print(f"[generate_rollouts] Loading model and tokenizer...")
+    model, tokenizer = get_model_and_tokenizer(model_name, omit_model=use_api)
+    print(f"[generate_rollouts] Model loaded.")
+
+    print(f"[generate_rollouts] Loading dataset '{dataset_partial_id}'...")
     data_repository = DatasetRepository()
     dataset = data_repository.get(dataset_partial_id, trim_reasoning=False)[:max_prompts]
+    print(f"[generate_rollouts] Dataset loaded: {len(dataset)} prompts.")
+
     generator = RolloutGenerator.from_dialogue_dataset(dataset, model or model_name, tokenizer)
 
     if out_file is None:
@@ -48,25 +63,35 @@ def generate_rollouts(
             REPO_ROOT / "data" / "rollouts" / f"{dataset_partial_id}__{model_name.value}.json"
         )
     out_file = Path(out_file)
+    print(f"[generate_rollouts] Output file: {out_file}")
 
+    print(f"[generate_rollouts] Generating {num} rollout(s) for each of {len(dataset)} prompts...")
     generator.generate(num)
+    print(f"[generate_rollouts] Generation complete.")
 
     if grade_rollouts:
+        print(f"[generate_rollouts] Grading rollouts...")
         generator.grade_all_dialogues()
+        print(f"[generate_rollouts] Grading complete.")
     else:
+        print(f"[generate_rollouts] Skipping grading, using expected deception labels.")
         for rollout in generator.rollout_dialogues:
             grade = rollout.expected_label.value
             rollout.graded_deception = [grade] * len(rollout.output_messages)
             rollout.grader_reasoning = ["Expected deception value"] * len(rollout.output_messages)
 
+    print(f"[generate_rollouts] Saving rollouts to {out_file}...")
     generator.save(out_file)
+    print(f"[generate_rollouts] Saved.")
 
     if add_to_repo:
         data_repository.add(
             dataset_partial_id, model_name.value, str(out_file.relative_to(REPO_ROOT))
         )
+        print(f"[generate_rollouts] Registered in dataset_paths.json as '{dataset_partial_id}__{model_name.value}'.")
 
     generator.print_grading_statistics()
+    print(f"[generate_rollouts] Done.")
 
 
 if __name__ == "__main__":

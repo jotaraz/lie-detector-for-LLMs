@@ -1,12 +1,10 @@
 method: "lr"
 model_name: "qwen-32b"
-train_data: "repe_honesty__plain"
+train_data: "repe_honesty__plain_with_sys"
 eval_data:
   - "roleplaying__plain"
   - "insider_trading__upscale"
-  - "insider_trading_doubledown__upscale"
-  - "sandbagging_v2__wmdp_mmlu"
-eval_on_policy: false
+eval_on_policy: true
 control_data:
   - "alpaca__plain"
 id: "repe"

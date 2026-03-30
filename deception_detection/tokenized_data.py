@@ -35,7 +35,7 @@ def get_str_tokens(token_ids: torch.Tensor, tokenizer: PreTrainedTokenizerBase) 
     # Convert token IDs to string tokens
     string_tokens = []
     for dialogue in token_ids_list:
-        dialogue_tokens = [tokenizer.bos_token]
+        dialogue_tokens = [tokenizer.bos_token] if tokenizer.bos_token is not None else []
         for token_id in dialogue:
             # we use bos as pad
             if token_id != tokenizer.bos_token_id:
@@ -117,6 +117,11 @@ class TokenizedDataset:
             return re.compile(
                 rf"({begin_of_text}{header}{date_info})?({end_of_turn}{header})?|(\n\n)?"
             )
+        if tokenizer_type == "qwen":
+            # Qwen2.5 chat template: <|im_start|>role\n...<|im_end|>\n
+            im_start = r"<\|im_start\|>(system|user|assistant)\n"
+            im_end = r"<\|im_end\|>\n"
+            return re.compile(rf"({im_end})?{im_start}|(\n\n)?")
 
         else:
             raise ValueError(f"Unknown tokenizer type: {tokenizer_type}")
@@ -221,8 +226,10 @@ class TokenizedDataset:
             tokenizer_type = "mistral"
         elif tokenizer.name_or_path.startswith(("meta-llama/Meta-Llama-3", "meta-llama/Llama-3")):
             tokenizer_type = "llama"
+        elif tokenizer.name_or_path.startswith("Qwen/"):
+            tokenizer_type = "qwen"
         else:
-            raise NotImplementedError("Only gemma, mistral, and llama tokenizers are supported")
+            raise NotImplementedError("Only gemma, mistral, llama, and qwen tokenizers are supported")
 
         # if llama and no system prompt, throw a warning
         if (
@@ -239,6 +246,7 @@ class TokenizedDataset:
             ]
 
         # gemma and mistral don't have a system prompt, so we fold it into the user prompt
+        # qwen and llama support system prompts natively
         fold_system = tokenizer_type in ["gemma", "mistral"]
         processed = [preprocess_dialogue(d, fold_system=fold_system) for d in dialogues]
         final_assistants = [cls._final_message_is_assistant(d) for d in dialogues]
@@ -253,6 +261,7 @@ class TokenizedDataset:
                     "gemma": "<end_of_turn>\n",
                     "mistral": "</s>",
                     "llama": "<|eot_id|>",
+                    "qwen": "<|im_end|>\n",
                 }[tokenizer_type]
                 formatted_dialogues = [d.removesuffix(eot_suffix) for d in formatted_dialogues]
         else:
@@ -288,6 +297,7 @@ class TokenizedDataset:
                 "gemma": "<end_of_turn>\n",
                 "mistral": "</s>",
                 "llama": "<|eot_id|>",
+                "qwen": "<|im_end|>",
             }[tokenizer_type]
             eot_tok = cast(int, tokenizer(eot_tok_str, add_special_tokens=False).input_ids[0])
             # we only want to use the detection mask on the last token of the message

@@ -11,6 +11,40 @@ from deception_detection.types import Dialogue, Label, Message, Role
 from deception_detection.utils import REPO_ROOT
 
 
+def _from_rollout_data_upscale(rollouts: list[dict[str, Any]]) -> DialogueDataType:
+    """Process rollouts in our stored rollout format for the upscale variant.
+
+    Used when the specialized {model}-generations.json file doesn't exist."""
+    dialogues: list[Dialogue] = []
+    labels: list[Label] = []
+    metadata: dict[str, list[Any]] = defaultdict(list)
+
+    for rollout in rollouts:
+        meta = rollout.get("metadata", {})
+        if "report_label" not in meta:
+            continue
+
+        all_messages = rollout.get("input_messages", []) + rollout.get("output_messages", [])
+        transcript = [Message(msg["role"], msg["content"].strip(), False) for msg in all_messages]
+        transcript[-1].detect = True
+
+        label = {
+            "explicit": Label.HONEST,
+            "implied": Label.AMBIGUOUS,
+            "concealed": Label.DECEPTIVE,
+            "invalid": Label.SKIP,
+        }[meta["report_label"]]
+
+        dialogues.append(transcript)
+        labels.append(label)
+        for k, v in meta.items():
+            metadata[k].append(v)
+        metadata["expected_label"].append("deceptive")
+
+    metadata["id"] = list(range(len(dialogues)))
+    return dialogues, labels, metadata
+
+
 def _from_rollouts_upscale(model: str, is_double_down: bool = False) -> DialogueDataType:
     """We store full transcripts for the `upscale` variant in specialized json files.
 
@@ -258,7 +292,11 @@ class InsiderTrading(DialogueDataset):
         of the rollout file.
         """
         if variant == "upscale":
-            dialogues, labels, metadata = _from_rollouts_upscale(model)
+            data_path = REPO_ROOT / f"data/insider_trading/{model}-generations.json"
+            if data_path.exists():
+                dialogues, labels, metadata = _from_rollouts_upscale(model)
+            else:
+                dialogues, labels, metadata = _from_rollout_data_upscale(rollouts)
             new = cls(
                 variant,
                 dialogues,
