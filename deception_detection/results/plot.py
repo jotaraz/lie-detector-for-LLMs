@@ -190,9 +190,13 @@ def roleplaying_violin(
 ):
     """Violin plot of roleplaying scores by deceptive grade, with alpaca scores as control"""
     df = get_dataframe_of_scores_on_dataset(exp, "roleplaying__plain", scorer=scorer)
+    # Drop rows where the grade is not a valid integer (e.g. 'unknown' from failed graders)
+    numeric_grade = pd.to_numeric(df["model_graded_deception"], errors="coerce")
+    df = df[numeric_grade.notna()].copy()
+    df["model_graded_deception"] = numeric_grade[numeric_grade.notna()].astype(int).values
     control_df = get_control_df(exp, scorer)
     control_df["model_graded_deception"] = "Control"
-    combined_df = pd.concat([df, control_df])
+    combined_df = pd.concat([df, control_df], ignore_index=True)
 
     plt.figure(figsize=figsize)
     palette = [HONEST_COLOR] * 2 + [AMBIGUOUS_COLOR] * 3 + [DECEPTIVE_COLOR] * 2 + [NEUTRAL_COLOR]
@@ -236,7 +240,7 @@ def ai_audit_violin(
     df["label"] = df["label"].map(lambda label: label.title())  # type: ignore
     control_df = get_control_df(exp, scorer)
     control_df["label"] = "Control"
-    df = pd.concat([df, control_df])
+    df = pd.concat([df, control_df], ignore_index=True)
 
     plt.figure(figsize=figsize)
     sns.violinplot(

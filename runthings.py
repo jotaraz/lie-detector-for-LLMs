@@ -47,9 +47,9 @@ subprocess.run([python, "generate_all_rollouts.py", python], check=True)
 print(f"[runthings] Rollout generation complete.")
 
 models = [
-            "_llama-8b_layer8",
-            "_llama-8b_layer16",
-            "_llama-8b_layer24",
+            "_gemma-9b_layer10",
+            "_gemma-9b_layer21",
+            "_gemma-9b_layer31",
         ]
 
 print(f"\n[runthings] {'='*60}")

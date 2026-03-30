@@ -108,7 +108,7 @@ def get_control_df(exp: Experiment, scorer: PromptScorer, normalize: bool = True
             }
         )
         control_dfs.append(df)
-    control_df = pd.concat(control_dfs)
+    control_df = pd.concat(control_dfs, ignore_index=True)
     return control_df
 
 
