@@ -174,8 +174,9 @@ cython_debug/
 #.idea/
 .aider*
 
-# result files
-results/
+# result files - large score blobs are pushed to HF (see push_to_hf.py / pull_from_hf.py)
+results/**/*_all_tokens.json
+results/**/control_scores.json
 results_cached/
 # but not result code folder
 !deception_detection/results/
