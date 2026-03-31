@@ -47,9 +47,21 @@ subprocess.run([python, "generate_all_rollouts.py", python], check=True)
 print(f"[runthings] Rollout generation complete.")
 
 models = [
-            "_gemma-9b_layer10",
-            "_gemma-9b_layer21",
-            "_gemma-9b_layer31",
+            # "probe_attention_llama-70b-3.3",
+            # "probe_ema_llama-70b-3.3",
+            "probe_mlp_paper_llama-70b-3.3",
+            # "probe_multimax_llama-70b-3.3",
+            # "probe_rolling_means_llama-70b-3.3",
+            # "probe_attention_qwen-32b",
+            # "probe_ema_qwen-32b",
+            "probe_mlp_paper_qwen-32b",
+            # "probe_multimax_qwen-32b",
+            # "probe_rolling_means_qwen-32b",
+            # "probe_attention_gemma3-12b",
+            # "probe_ema_gemma3-12b",
+            "probe_mlp_paper_gemma3-12b",
+            # "probe_multimax_gemma3-12b",
+            # "probe_rolling_means_gemma3-12b",
         ]
 
 print(f"\n[runthings] {'='*60}")
@@ -58,7 +70,7 @@ print(f"[runthings] {'='*60}")
 
 failed = []
 for i, model in enumerate(models, 1):
-    config_name = f"repe{model}"
+    config_name = model #f"repe{model}"
     print(f"\n[runthings] [{i}/{len(models)}] Starting experiment: {config_name}")
     try:
         subprocess.run(
