@@ -46,23 +46,22 @@ print(f"[runthings] {'='*60}")
 subprocess.run([python, "generate_all_rollouts.py", python], check=True)
 print(f"[runthings] Rollout generation complete.")
 
-models = [
-            # "probe_attention_llama-70b-3.3",
-            # "probe_ema_llama-70b-3.3",
-            "probe_mlp_paper_llama-70b-3.3",
-            # "probe_multimax_llama-70b-3.3",
-            # "probe_rolling_means_llama-70b-3.3",
-            # "probe_attention_qwen-32b",
-            # "probe_ema_qwen-32b",
-            "probe_mlp_paper_qwen-32b",
-            # "probe_multimax_qwen-32b",
-            # "probe_rolling_means_qwen-32b",
-            # "probe_attention_gemma3-12b",
-            # "probe_ema_gemma3-12b",
-            "probe_mlp_paper_gemma3-12b",
-            # "probe_multimax_gemma3-12b",
-            # "probe_rolling_means_gemma3-12b",
+LLMs = [
+            "_llama-8b",
+            "_gemma-9b",
         ]
+
+probe_types = [
+            #"probe_attention",
+            #"probe_ema",
+            "probe_mlp_paper",
+            #"probe_multimax",
+            #"probe_rolling_means",
+            ]
+
+models = [probe+LLM for probe in probe_types for LLM in LLMs]
+
+print(models)
 
 print(f"\n[runthings] {'='*60}")
 print(f"[runthings] STEP 2: Running experiments for {len(models)} model config(s)")
