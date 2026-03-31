@@ -1,0 +1,16 @@
+probe_architecture: "ema"
+model_name: "llama-8b"
+train_data: "repe_honesty__plain"
+eval_data:
+  - "roleplaying__plain"
+  - "insider_trading__upscale"
+eval_on_policy: true
+control_data:
+  - "alpaca__plain"
+id: "probe"
+detect_only_start_of_turn: false
+val_fraction: 0.2
+control_on_policy: false
+control_dataset_size: 10000
+detect_layers: [8]
+probe_alpha: 0.5

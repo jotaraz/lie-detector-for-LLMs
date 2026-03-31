@@ -1,0 +1,20 @@
+probe_architecture: "multimax"
+model_name: "gemma3-12b"
+train_data: "repe_honesty__plain"
+eval_data:
+  - "roleplaying__plain"
+  - "insider_trading__upscale"
+eval_on_policy: true
+control_data:
+  - "alpaca__plain"
+id: "probe"
+detect_only_start_of_turn: false
+val_fraction: 0.2
+control_on_policy: false
+control_dataset_size: 10000
+detect_layers: [12]
+probe_hidden_dim: 100
+probe_mlp_depth: 2
+probe_n_heads: 10
+probe_lr: 0.001
+probe_epochs: 1000

@@ -15,6 +15,10 @@ from deception_detection.detectors import (
     Detector,
     get_detector_class,
 )
+from deception_detection.probe_architectures import (
+    ProbeArchitecture,
+    get_probe_architecture_class,
+)
 from deception_detection.log import logger
 from deception_detection.models import (
     ModelName,
@@ -86,8 +90,18 @@ class ExperimentConfig(BaseModel):
     """
 
     # Core experiment configuration
-    method: Literal["mms", "lat", "lr", "mlp", "cmms", "mlr", "best"]
+    method: Literal["mms", "lat", "lr", "mlp", "cmms", "mlr", "best"] | None = None
     model_name: ModelName
+
+    # Probe architecture (alternative to method; single-layer only)
+    probe_architecture: ProbeArchitecture | None = None
+    probe_lr: float = 1e-3
+    probe_hidden_dim: int = 100
+    probe_mlp_depth: int = 2
+    probe_n_heads: int = 10
+    probe_alpha: float = 0.5
+    probe_window_size: int = 10
+    probe_epochs: int = 1000
 
     # Dataset configuration
     train_data: DatasetName = "repe_honesty"
@@ -144,6 +158,7 @@ class ExperimentConfig(BaseModel):
             ) from e
 
     def model_post_init(self, _context: Any):
+        self._validate_method_or_probe_architecture()
         self._set_default_name()
         self._check_train_data_not_in_eval_data()
         self._set_default_detect_layers()
@@ -189,7 +204,8 @@ class ExperimentConfig(BaseModel):
         return list(range(int(0.25 * n_layers), int(0.75 * n_layers)))
 
     def _get_default_name(self):
-        name = f"{self.method}__{self.train_data}__{self.model_name.value}__{self.timestamp}"
+        method_str = self.probe_architecture or self.method or "unknown"
+        name = f"{method_str}__{self.train_data}__{self.model_name.value}__{self.timestamp}"
         if self.id:
             name = f"{self.id}_{name}"
         name = name.replace("/", "_")
@@ -221,6 +237,10 @@ class ExperimentConfig(BaseModel):
         if self.reg_coeff is not None and self.method not in ["lr", "mlr"]:
             raise ValueError("reg_coeff can only be set for lr and mlr methods")
 
+    def _validate_method_or_probe_architecture(self) -> None:
+        if self.method is None and self.probe_architecture is None:
+            raise ValueError("Either 'method' or 'probe_architecture' must be specified.")
+
     def _validate_goodfire_sae_acts_config(self) -> None:
         if self.use_goodfire_sae_acts:
             if not self.model_name.type == "llama":
@@ -251,8 +271,15 @@ class ExperimentConfig(BaseModel):
             yaml.safe_dump(config_dict, f, indent=2)
 
     def _validate_detector_config(self) -> None:
+        self._validate_method_or_probe_architecture()
         if self.method == "best" and self.detect_num_latents is None:
             raise ValueError("detect_num_latents must be set for best latents detector")
+        if self.probe_architecture is not None and len(self.detect_layers) != 1:
+            raise ValueError(
+                f"probe_architecture requires exactly one entry in detect_layers "
+                f"(got {len(self.detect_layers)}). "
+                "Add 'detect_layers: [<layer_number>]' to your config."
+            )
 
 
 class Experiment:
@@ -292,7 +319,11 @@ class Experiment:
         """Loads from saved file if possible, or trains a new one and saves if not."""
 
         path = self.cfg.folder / "detector.pt"
-        detector_class = get_detector_class(self.cfg.method)
+
+        if self.cfg.probe_architecture is not None:
+            detector_class = get_probe_architecture_class(self.cfg.probe_architecture)
+        else:
+            detector_class = get_detector_class(self.cfg.method)
 
         if path.exists():
             print(f"[experiment] Loading saved detector from {path}")
@@ -315,14 +346,41 @@ class Experiment:
 
         honest_fit_acts = self.to_local_sae_acts(honest_fit_acts)
         deceptive_fit_acts = self.to_local_sae_acts(deceptive_fit_acts)
-        detector_kwargs: dict[str, Any] = {"layers": self.cfg.detect_layers}
-        if self.cfg.method == "best":
-            detector_kwargs["detect_num_latents"] = self.cfg.detect_num_latents
-            detector_kwargs["experiment_path"] = self.cfg.folder
-        if self.cfg.reg_coeff is not None:
-            detector_kwargs["reg_coeff"] = self.cfg.reg_coeff
-        if self.cfg.method == "lr":
-            detector_kwargs["normalize"] = self.cfg.normalize_acts
+
+        if self.cfg.probe_architecture is not None:
+            layer = self.cfg.detect_layers[0]
+            arch = self.cfg.probe_architecture
+            if arch == "ema":
+                detector_kwargs: dict[str, Any] = {"layer": layer, "alpha": self.cfg.probe_alpha}
+            elif arch == "mlp_paper":
+                detector_kwargs = {
+                    "layer": layer,
+                    "hidden_dim": self.cfg.probe_hidden_dim,
+                    "mlp_depth": self.cfg.probe_mlp_depth,
+                    "lr": self.cfg.probe_lr,
+                    "epochs": self.cfg.probe_epochs,
+                }
+            else:  # attention, multimax, rolling_means_attention
+                detector_kwargs = {
+                    "layer": layer,
+                    "hidden_dim": self.cfg.probe_hidden_dim,
+                    "mlp_depth": self.cfg.probe_mlp_depth,
+                    "n_heads": self.cfg.probe_n_heads,
+                    "lr": self.cfg.probe_lr,
+                    "epochs": self.cfg.probe_epochs,
+                }
+                if arch == "rolling_means_attention":
+                    detector_kwargs["window_size"] = self.cfg.probe_window_size
+        else:
+            detector_kwargs = {"layers": self.cfg.detect_layers}
+            if self.cfg.method == "best":
+                detector_kwargs["detect_num_latents"] = self.cfg.detect_num_latents
+                detector_kwargs["experiment_path"] = self.cfg.folder
+            if self.cfg.reg_coeff is not None:
+                detector_kwargs["reg_coeff"] = self.cfg.reg_coeff
+            if self.cfg.method == "lr":
+                detector_kwargs["normalize"] = self.cfg.normalize_acts
+
         detector = detector_class(**detector_kwargs)
         detector.fit(deceptive_fit_acts, honest_fit_acts)
         out_file = self.cfg.folder / "detector.pt"
