@@ -116,6 +116,26 @@ def _load_detector(probe_dir: Path, cfg: dict[str, Any]) -> Detector:
 # Generation + activation capture
 # ---------------------------------------------------------------------------
 
+def _get_decoder_layers(model) -> torch.nn.ModuleList:
+    """
+    Return the ModuleList of transformer decoder layers regardless of whether
+    the model wraps the LM inside a vision/multimodal outer model.
+
+    Tries common paths in order:
+      1. model.model.layers            (most HF decoder-only models)
+      2. model.model.language_model.layers  (Gemma3 / LLaVA-style VLMs)
+    """
+    inner = model.model
+    if hasattr(inner, "layers"):
+        return inner.layers
+    if hasattr(inner, "language_model") and hasattr(inner.language_model, "layers"):
+        return inner.language_model.layers
+    raise AttributeError(
+        f"Cannot locate decoder layers on {type(inner).__name__}. "
+        "Add the correct path to _get_decoder_layers()."
+    )
+
+
 def _generate_with_activations(
     model,
     tokenizer,
@@ -149,7 +169,7 @@ def _generate_with_activations(
             _cur[layer_idx] = hidden[0, -1, :].detach().cpu()
         return hook
 
-    hooks = [model.model.layers[li].register_forward_hook(make_hook(li)) for li in layers]
+    hooks = [_get_decoder_layers(model)[li].register_forward_hook(make_hook(li)) for li in layers]
 
     generated_ids: list[int] = []
     step_acts: list[torch.Tensor] = []   # each entry: [n_layers, hidden_dim]
@@ -217,6 +237,137 @@ def _trunc(s: str, n: int = 70) -> str:
     return s if len(s) <= n else s[:n] + "…"
 
 
+def _layout_tokens(
+    tokens: list[str],
+    scores: np.ndarray,
+    chars_per_line: int,
+) -> list[list[tuple[int, str, float]]]:
+    """
+    Wrap tokens into lines of at most *chars_per_line* characters.
+
+    Returns a list of lines; each line is a list of (x_char, display_str, score).
+    """
+    lines: list[list[tuple[int, str, float]]] = []
+    current_line: list[tuple[int, str, float]] = []
+    x_char = 0
+
+    for token, score in zip(tokens, scores):
+        display = (
+            token
+            .replace("▁", " ")
+            .replace("Ġ", " ")
+            .replace("Ċ", "\n")
+            .replace("<0x0A>", "\n")
+            .replace("</s>", "")
+        )
+        parts = display.split("\n")
+        for part_idx, part in enumerate(parts):
+            if part_idx > 0:          # explicit newline in token → new line
+                lines.append(current_line)
+                current_line = []
+                x_char = 0
+            if not part:
+                continue
+            tw = len(part)
+            if x_char > 0 and x_char + tw > chars_per_line:   # wrap
+                lines.append(current_line)
+                current_line = []
+                x_char = 0
+            current_line.append((x_char, part, float(score)))
+            x_char += tw
+
+    if current_line:
+        lines.append(current_line)
+    return lines
+
+
+def _char_width_frac(font_size: int, axes_w_pts: float) -> tuple[float, int]:
+    """
+    Return (char_w_frac, chars_per_line) using exact font advance widths from
+    TextPath — no heuristic multiplier needed.
+
+    char_w_frac  : fraction of the axes width occupied by one monospace character
+    chars_per_line : how many characters fit across the axes
+    """
+    from matplotlib.font_manager import FontProperties
+    from matplotlib.textpath import TextPath
+
+    fp = FontProperties(family="monospace", size=font_size)
+    # Use a long string so rounding of a single glyph is negligible
+    sample = "M" * 200
+    tp = TextPath((0, 0), sample, prop=fp)
+    char_w_pts = tp.get_extents().width / len(sample)
+
+    cpl = max(20, int(axes_w_pts / char_w_pts))
+    return char_w_pts / axes_w_pts, cpl
+
+
+def _render_token_heatmap(
+    ax,
+    tokens: list[str],
+    scores: np.ndarray,
+    cmap,
+    norm,
+    font_size: int,
+    char_w_frac: float,
+    chars_per_line: int,
+) -> int:
+    """
+    Render tokens as gapless highlighted text.
+
+    Uses a blended transform: x in axes-fraction (so the measured char_w_frac
+    maps exactly to one monospace character width), y in data units (so
+    matplotlib handles vertical scaling automatically).  Rectangle patches and
+    text objects share the same transform, guaranteeing zero gap between
+    adjacent token boxes.
+    """
+    from matplotlib.transforms import blended_transform_factory
+
+    lines = _layout_tokens(tokens, scores, chars_per_line)
+    n_lines = len(lines)
+
+    # y axis: one data unit per line, top line = n_lines-1 … bottom = 0
+    ax.set_xlim(0, 1)
+    ax.set_ylim(-0.08, n_lines + 0.08)
+    ax.set_facecolor("white")
+    ax.axis("off")
+
+    # x: axes fraction  |  y: data units
+    trans = blended_transform_factory(ax.transAxes, ax.transData)
+
+    rect_pad  = 0.06   # fraction of a line height left blank above/below the rect
+    rect_h    = 1.0 - 2 * rect_pad
+
+    for li, line_tokens in enumerate(lines):
+        y_bot    = (n_lines - 1 - li) + rect_pad   # data-unit bottom of rect
+        y_center = y_bot + rect_h / 2
+
+        for x_char, part, score in line_tokens:
+            color = cmap(norm(score))
+            x = x_char * char_w_frac
+            w = len(part) * char_w_frac
+
+            # Background — exact same transform as text, so no gap ever
+            ax.add_patch(plt.Rectangle(
+                (x, y_bot), w, rect_h,
+                facecolor=color, edgecolor="none",
+                transform=trans, clip_on=True, zorder=1,
+            ))
+
+            ax.text(
+                x, y_center, part,
+                ha="left", va="center",
+                fontsize=font_size,
+                fontfamily="monospace",
+                transform=trans,
+                color="black",
+                clip_on=True,
+                zorder=2,
+            )
+
+    return n_lines
+
+
 def _plot(
     probe_dirs: list[Path],
     conv_labels: list[str],
@@ -224,41 +375,98 @@ def _plot(
     scores_by_probe: list[list[np.ndarray]],
     output_path: Path,
 ) -> None:
+    import matplotlib.colors as mcolors
+    from matplotlib.colors import LinearSegmentedColormap
+
     n_convs = len(conv_labels)
     n_probes = len(probe_dirs)
-    colors = [plt.cm.tab10(i / max(n_probes, 1)) for i in range(n_probes)]
 
-    fig = plt.figure(figsize=(14, max(4, 3.5 * n_convs) + 1.5))
-    gs = gridspec.GridSpec(n_convs, 1, figure=fig, hspace=0.75)
+    # ── Colormap ─────────────────────────────────────────────────────────────
+    # Restrict to 20–80 % of RdBu_r so neither extreme goes near-black:
+    #   left edge  → muted blue  (low / honest)
+    #   centre     → white       (neutral)
+    #   right edge → muted red   (high / deceptive)
+    cmap = LinearSegmentedColormap.from_list(
+        "RdBu_soft", plt.cm.RdBu_r(np.linspace(0.20, 0.80, 256))
+    )
+    all_scores = np.concatenate([s for per_conv in scores_by_probe for s in per_conv])
+    abs_max = float(max(abs(all_scores.min()), abs(all_scores.max()), 1e-6))
+    norm = mcolors.Normalize(vmin=-abs_max, vmax=abs_max)
 
+    # ── Layout constants ──────────────────────────────────────────────────────
+    fig_width   = 20          # inches — wide canvas for long lines
+    font_size   = 11          # pt
+    gs_left     = 0.01        # explicit gridspec margins → predictable axes width
+    gs_right    = 0.99
+    cbar_in     = 0.50
+    suptitle_in = 0.35
+    title_in    = 0.28        # inches per subplot title
+
+    axes_w_pts = fig_width * (gs_right - gs_left) * 72   # pts
+    char_w_frac, chars_per_line = _char_width_frac(font_size, axes_w_pts)
+
+    # Line height: font_size * comfortable spacing, in inches
+    line_h_in = font_size * 1.55 / 72
+
+    # ── Per-row heights ───────────────────────────────────────────────────────
+    n_rows = n_convs * n_probes
+    row_heights: list[float] = []
     for ci in range(n_convs):
-        ax = fig.add_subplot(gs[ci])
-        tokens = token_strs_all[ci]
-        n = len(tokens)
-        x = np.arange(n)
+        for pi in range(n_probes):
+            tokens = token_strs_all[ci]
+            scores = scores_by_probe[pi][ci]
+            n  = min(len(tokens), len(scores))
+            nl = max(len(_layout_tokens(tokens[:n], scores[:n], chars_per_line)), 1)
+            row_heights.append(nl * line_h_in + title_in)
 
-        for pi, (pd, per_conv) in enumerate(zip(probe_dirs, scores_by_probe)):
-            s = per_conv[ci][:n]
-            ax.plot(x[: len(s)], s, label=_trunc(pd.name, 45), color=colors[pi], lw=1.5)
+    total_h = sum(row_heights) + cbar_in + suptitle_in
 
-        ax.axhline(0, color="gray", ls="--", lw=0.8, alpha=0.5)
+    fig = plt.figure(figsize=(fig_width, total_h))
+    gs = gridspec.GridSpec(
+        n_rows + 1, 1,
+        figure=fig,
+        height_ratios=row_heights + [cbar_in],
+        hspace=0.45,
+        left=gs_left,
+        right=gs_right,
+        top=1.0 - suptitle_in / total_h,
+        bottom=cbar_in / total_h * 0.5,
+    )
 
-        # Sparse x-tick token labels
-        step = max(1, n // 25)
-        ticks = x[::step]
-        ax.set_xticks(ticks)
-        ax.set_xticklabels(
-            [tokens[t].replace("▁", " ").replace("Ġ", " ").replace("\n", "↵")[:8] for t in ticks],
-            rotation=60, ha="right", fontsize=7,
-        )
+    ax_idx = 0
+    for ci in range(n_convs):
+        for pi in range(n_probes):
+            ax = fig.add_subplot(gs[ax_idx])
+            ax_idx += 1
 
-        ax.set_ylabel("Probe score", fontsize=8)
-        ax.set_title(f"Conv {ci + 1}: {_trunc(conv_labels[ci])}", fontsize=9)
-        ax.grid(True, alpha=0.2)
-        if n_probes > 1 or ci == 0:
-            ax.legend(loc="upper right", fontsize=7, framealpha=0.75)
+            tokens = token_strs_all[ci]
+            scores = scores_by_probe[pi][ci]
+            n = min(len(tokens), len(scores))
 
-    fig.suptitle("Probe scores during generation", fontsize=12, fontweight="bold")
+            _render_token_heatmap(
+                ax, tokens[:n], scores[:n], cmap, norm,
+                font_size=font_size,
+                char_w_frac=char_w_frac,
+                chars_per_line=chars_per_line,
+            )
+
+            title = f"Conv {ci + 1} — {_trunc(conv_labels[ci], 110)}"
+            if n_probes > 1:
+                title += f"  ·  probe: {_trunc(probe_dirs[pi].name, 40)}"
+            ax.set_title(title, fontsize=10, loc="left", pad=3, fontweight="bold")
+
+    # ── Shared colorbar ───────────────────────────────────────────────────────
+    cax = fig.add_subplot(gs[-1])
+    sm  = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
+    sm.set_array([])
+    cb  = plt.colorbar(sm, cax=cax, orientation="horizontal")
+    cb.set_label(
+        "Probe score   (blue = honest  ·  white = neutral  ·  red = deceptive)",
+        fontsize=10,
+    )
+
+    fig.suptitle("Token-level probe scores", fontsize=14, fontweight="bold",
+                 y=1.0 - suptitle_in / total_h / 2)
     plt.savefig(output_path, dpi=150, bbox_inches="tight")
     print(f"Plot saved → {output_path}")
 
@@ -283,12 +491,15 @@ def main() -> None:
         ),
     )
     parser.add_argument(
-        "--max_new_tokens", type=int, default=200,
-        help="Maximum tokens to generate per conversation (default: 200).",
+        "--max_new_tokens", type=int, default=50,
+        help="Maximum tokens to generate per conversation (default: 50).",
     )
     parser.add_argument(
-        "--output", default="tryprobe_results.png",
-        help="Output PNG path (default: tryprobe_results.png).",
+        "--output", default=None,
+        help=(
+            "Output PNG path.  "
+            "Default: plots/<probe1>[+<probe2>…].png  (created automatically)."
+        ),
     )
     parser.add_argument(
         "--no_show", action="store_true",
@@ -389,6 +600,18 @@ def main() -> None:
         scores_by_probe.append(per_conv_scores)
         print(f"  {probe_dirs[pi].name}: scored {len(conversations)} conversation(s)")
 
+    # ── Resolve output path ───────────────────────────────────────────────
+    if args.output:
+        output_path = Path(args.output)
+    else:
+        plots_dir = Path("plots")
+        plots_dir.mkdir(exist_ok=True)
+        probe_tag = "+".join(pd.name for pd in probe_dirs)
+        # Truncate to keep filenames sane on all filesystems
+        if len(probe_tag) > 180:
+            probe_tag = probe_tag[:180] + "…"
+        output_path = plots_dir / f"{probe_tag}.png"
+
     # ── Plot ──────────────────────────────────────────────────────────────
     print("\nPlotting …")
     _plot(
@@ -396,7 +619,7 @@ def main() -> None:
         conv_labels=conv_labels,
         token_strs_all=token_strs_all,
         scores_by_probe=scores_by_probe,
-        output_path=Path(args.output),
+        output_path=output_path,
     )
 
     if not args.no_show:

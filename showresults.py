@@ -28,9 +28,10 @@ from sklearn.metrics import roc_auc_score, roc_curve
 RESULTS_DIR = Path(__file__).parent / "results"
 
 RELEVANT_MODELS = [
-    #"llama-8b",
+    "llama-8b",
     "llama-70b-3.3",
-    #"gemma-9b",
+    "llama-70b",
+    "gemma-9b",
     "gemma3-12b",
     "qwen-32b",
 ]
@@ -147,6 +148,7 @@ def print_model_table(model: str, rows: list[dict], all_datasets: list[str]) -> 
     col_probe = max(len("probe"),      max(len(r["probe"])      for r in rows))
     col_layers = max(len("layers"),    max(len(r["layers"])     for r in rows))
     col_train  = max(len("train_data"), max(len(r["train_data"]) for r in rows))
+    col_dir    = max(len("dir"),        max(len(r["dir"])        for r in rows))
     col_ds     = max(len("auroc (recall@1%)"), 17)
 
     header = (
@@ -154,6 +156,7 @@ def print_model_table(model: str, rows: list[dict], all_datasets: list[str]) -> 
         f"{'probe':<{col_probe}}  "
         f"{'layers':<{col_layers}}  "
         f"{'train_data':<{col_train}}  "
+        f"{'dir':<{col_dir}}  "
         + "  ".join(f"{ds:<{col_ds}}" for ds in all_datasets)
     )
     sep = "-" * len(header)
@@ -170,6 +173,7 @@ def print_model_table(model: str, rows: list[dict], all_datasets: list[str]) -> 
             f"{r['probe']:<{col_probe}}  "
             f"{r['layers']:<{col_layers}}  "
             f"{r['train_data']:<{col_train}}  "
+            f"{r['dir']:<{col_dir}}  "
             + "  ".join(
                 f"{fmt_cell(r['aurocs'].get(ds)):<{col_ds}}"
                 for ds in all_datasets
@@ -213,6 +217,7 @@ def main() -> None:
             "layers":     layers,
             "train_data": train,
             "aurocs":     aurocs,
+            "dir":        exp_dir.name,
         })
         model_datasets[model].update(aurocs.keys())
 

@@ -61,6 +61,8 @@ probe_types = [
 
 models = [probe+LLM for probe in probe_types for LLM in LLMs]
 
+models = ["repe_llama-3.1-70b-base_layer20"]
+
 print(models)
 
 print(f"\n[runthings] {'='*60}")

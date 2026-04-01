@@ -31,6 +31,7 @@ class ModelName(str, Enum):
     LLAMA_8B = "llama-8b"
     LLAMA_70B = "llama-70b"
     LLAMA_70B_3_3 = "llama-70b-3.3"
+    LLAMA_70B_BASE = "llama-3.1-70b-base"
     GEMMA3_12B = "gemma3-12b"
     QWEN_32B = "qwen-32b"
 
@@ -40,8 +41,13 @@ class ModelName(str, Enum):
 
     @property
     def size(self) -> ModelSize:
-        size_str = self.value.split("-")[1].replace("b", "")
-        return cast(ModelSize, int(size_str))
+        for part in self.value.split("-"):
+            if part.endswith("b"):
+                try:
+                    return cast(ModelSize, int(part[:-1]))
+                except ValueError:
+                    continue
+        raise ValueError(f"Could not determine size for model {self.value}")
 
     @property
     def is_llama_3_3(self) -> bool:
@@ -254,6 +260,7 @@ def get_llama3_model_and_tokenizer(
         ModelName.LLAMA_3B: "meta-llama/Llama-3.2-3B-Instruct",
         ModelName.LLAMA_70B_3_3: "meta-llama/Llama-3.3-70B-Instruct",
         ModelName.LLAMA_70B: "meta-llama/Meta-Llama-3.1-70B-Instruct",
+        ModelName.LLAMA_70B_BASE: "meta-llama/Llama-3.1-70B",
         ModelName.LLAMA_8B: "meta-llama/Meta-Llama-3.1-8B-Instruct",
     }[model_name]
     model = AutoModelForCausalLM.from_pretrained(

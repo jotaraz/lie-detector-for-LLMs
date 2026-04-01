@@ -20,6 +20,11 @@ ROLLOUT_JOBS = [
     ("gemma-9b",    "roleplaying__plain"),
     ("llama-8b",    "roleplaying__plain"),
     ("llama-8b",    "insider_trading__upscale"),
+    ("llama-3.1-70b-base", "roleplaying__plain"),
+    ("llama-3.1-70b-base", "insider_trading__upscale"),
+    ("llama-3.1-70b-base", "insider_trading_doubledown__upscale"),
+    ("llama-3.1-70b-base", "sandbagging_v2__wmdp_mmlu"),
+    ("llama-3.1-70b-base", "alpaca__plain"),
 ]
 
 
