@@ -390,8 +390,7 @@ def _plot(
         "RdBu_soft", plt.cm.RdBu_r(np.linspace(0.20, 0.80, 256))
     )
     all_scores = np.concatenate([s for per_conv in scores_by_probe for s in per_conv])
-    abs_max = float(max(abs(all_scores.min()), abs(all_scores.max()), 1e-6))
-    norm = mcolors.Normalize(vmin=-abs_max, vmax=abs_max)
+    norm = mcolors.Normalize(vmin=float(all_scores.min()), vmax=float(all_scores.max()))
 
     # ── Layout constants ──────────────────────────────────────────────────────
     fig_width   = 20          # inches — wide canvas for long lines
@@ -450,7 +449,8 @@ def _plot(
                 chars_per_line=chars_per_line,
             )
 
-            title = f"Conv {ci + 1} — {_trunc(conv_labels[ci], 110)}"
+            avg_score = float(scores[:n].mean()) if n > 0 else float("nan")
+            title = f"Conv {ci + 1} — {_trunc(conv_labels[ci], 110)} ({avg_score:.2f})"
             if n_probes > 1:
                 title += f"  ·  probe: {_trunc(probe_dirs[pi].name, 40)}"
             ax.set_title(title, fontsize=10, loc="left", pad=3, fontweight="bold")
@@ -461,7 +461,7 @@ def _plot(
     sm.set_array([])
     cb  = plt.colorbar(sm, cax=cax, orientation="horizontal")
     cb.set_label(
-        "Probe score   (blue = honest  ·  white = neutral  ·  red = deceptive)",
+        f"Probe score   (range: {float(all_scores.min()):.3f} – {float(all_scores.max()):.3f})",
         fontsize=10,
     )
 

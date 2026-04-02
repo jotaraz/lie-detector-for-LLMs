@@ -63,6 +63,49 @@ models = [probe+LLM for probe in probe_types for LLM in LLMs]
 
 models = ["repe_llama-3.1-70b-base_layer20"]
 
+models = [
+    "repe_llama-8b_layer8_reg0p1.yaml",
+    "repe_llama-8b_layer8_reg1.yaml",
+    "repe_llama-8b_layer8_reg3.yaml",
+    "repe_llama-8b_layer8_reg30.yaml",
+    "repe_llama-8b_layer8_reg100.yaml",
+    "repe_llama-8b_layer16_reg0p1.yaml",
+    "repe_llama-8b_layer16_reg1.yaml",
+    "repe_llama-8b_layer16_reg3.yaml",
+    "repe_llama-8b_layer16_reg30.yaml",
+    "repe_llama-8b_layer16_reg100.yaml",
+    "repe_gemma-9b_layer10_reg0p1.yaml",
+    "repe_gemma-9b_layer10_reg1.yaml",
+    "repe_gemma-9b_layer10_reg3.yaml",
+    "repe_gemma-9b_layer10_reg30.yaml",
+    "repe_gemma-9b_layer10_reg100.yaml",
+    "repe_gemma-9b_layer21_reg0p1.yaml",
+    "repe_gemma-9b_layer21_reg1.yaml",
+    "repe_gemma-9b_layer21_reg3.yaml",
+    "repe_gemma-9b_layer21_reg30.yaml",
+    "repe_gemma-9b_layer21_reg100.yaml",
+    "repe_gemma3-12b_layer12_reg0p1.yaml",
+    "repe_gemma3-12b_layer12_reg1.yaml",
+    "repe_gemma3-12b_layer12_reg3.yaml",
+    "repe_gemma3-12b_layer12_reg30.yaml",
+    "repe_gemma3-12b_layer12_reg100.yaml",
+    "repe_gemma3-12b_layer24_reg0p1.yaml",
+    "repe_gemma3-12b_layer24_reg1.yaml",
+    "repe_gemma3-12b_layer24_reg3.yaml",
+    "repe_gemma3-12b_layer24_reg30.yaml",
+    "repe_gemma3-12b_layer24_reg100.yaml",
+    "repe_qwen-32b_layer16_reg0p1.yaml",
+    "repe_qwen-32b_layer16_reg1.yaml",
+    "repe_qwen-32b_layer16_reg3.yaml",
+    "repe_qwen-32b_layer16_reg30.yaml",
+    "repe_qwen-32b_layer16_reg100.yaml",
+    "repe_qwen-32b_layer32_reg0p1.yaml",
+    "repe_qwen-32b_layer32_reg1.yaml",
+    "repe_qwen-32b_layer32_reg3.yaml",
+    "repe_qwen-32b_layer32_reg30.yaml",
+    "repe_qwen-32b_layer32_reg100.yaml",
+    ]
+
 print(models)
 
 print(f"\n[runthings] {'='*60}")
@@ -71,7 +114,7 @@ print(f"[runthings] {'='*60}")
 
 failed = []
 for i, model in enumerate(models, 1):
-    config_name = model #f"repe{model}"
+    config_name = model[:-5] #f"repe{model}"
     print(f"\n[runthings] [{i}/{len(models)}] Starting experiment: {config_name}")
     try:
         subprocess.run(
