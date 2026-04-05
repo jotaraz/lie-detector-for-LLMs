@@ -252,7 +252,7 @@ def get_llama3_model_and_tokenizer(
 ) -> tuple[PreTrainedModel | None, PreTrainedTokenizerBase]:
     """Return Llama3 model and tokenizer"""
     tokenizer = get_llama3_tokenizer()
-    if omit_model:
+    if omit_model:-
         return None, tokenizer
 
     model_path = {
