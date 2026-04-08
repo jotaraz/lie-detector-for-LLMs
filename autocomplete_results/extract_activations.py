@@ -232,7 +232,14 @@ def load_model_and_tokenizer(model_tag: str):
 
 def get_layer_indices(model) -> list[int]:
     """Return the three hidden_states indices to probe: L//4, L//2, 3*L//4."""
-    L = model.config.num_hidden_layers
+    cfg = model.config
+    # Gemma3Config stores layer count under text_config
+    if hasattr(cfg, "num_hidden_layers"):
+        L = cfg.num_hidden_layers
+    elif hasattr(cfg, "text_config") and hasattr(cfg.text_config, "num_hidden_layers"):
+        L = cfg.text_config.num_hidden_layers
+    else:
+        raise AttributeError(f"{type(cfg).__name__} has no num_hidden_layers attribute")
     return [L // 4, L // 2, 3 * L // 4]
 
 
@@ -455,7 +462,11 @@ def main() -> None:
 
         model, tokenizer, hf_id, use_autocast = load_model_and_tokenizer(model_tag)
         layer_indices = get_layer_indices(model)
-        L = model.config.num_hidden_layers
+        cfg = model.config
+        if hasattr(cfg, "num_hidden_layers"):
+            L = cfg.num_hidden_layers
+        else:
+            L = cfg.text_config.num_hidden_layers
         print(f"L = {L}  →  probing layers {layer_indices}", flush=True)
 
         all_prefilled: list[torch.Tensor] = []

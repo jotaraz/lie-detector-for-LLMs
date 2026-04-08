@@ -17,25 +17,23 @@ from huggingface_hub import HfApi, create_repo
 # Set this to your HuggingFace repo (will be created if it doesn't exist)
 REPO_ID = "jo-chen/lie-detector-results"
 
-# These are the file patterns excluded from git and stored on HF
-LARGE_FILE_PATTERNS = [
-    "*_all_tokens.json",
-    "control_scores.json",
+# These are the (dir, pattern) pairs excluded from git and stored on HF
+LARGE_FILE_SPECS = [
+    ("results", "*_all_tokens.json"),
+    ("results", "control_scores.json"),
+    ("autocomplete_results", "*.pt"),
 ]
 
 
 def push(
     repo_id: str = REPO_ID,
-    results_dir: str = "results",
     dry_run: bool = False,
 ) -> None:
-    results_path = Path(results_dir)
-    if not results_path.exists():
-        raise FileNotFoundError(f"Results directory not found: {results_path.resolve()}")
-
     files_to_upload: list[Path] = []
-    for pattern in LARGE_FILE_PATTERNS:
-        files_to_upload.extend(sorted(results_path.rglob(pattern)))
+    for dir_name, pattern in LARGE_FILE_SPECS:
+        search_path = Path(dir_name)
+        if search_path.exists():
+            files_to_upload.extend(sorted(search_path.rglob(pattern)))
 
     if not files_to_upload:
         print("No large result files found.")

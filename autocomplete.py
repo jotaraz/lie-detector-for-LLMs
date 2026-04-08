@@ -32,17 +32,17 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 
 MODELS = [
     "Qwen/Qwen2.5-32B-Instruct",
-    "meta-llama/Llama-3.3-70B-Instruct",
     "meta-llama/Llama-3.1-8B-Instruct",
     "google/gemma-3-12b-it",
     "google/gemma-2-9b-it",
+    "meta-llama/Llama-3.3-70B-Instruct",
 ]
 
 # Path to the JSONL file containing conversations.
 # Each line must be a JSON array of {"role": ..., "content": ...} dicts,
 # with the last message from the "assistant".
 # Can also be passed as a command-line argument: python autocomplete.py autoconv1.jsonl
-CONVERSATIONS_FILE = Path("autoconv2.jsonl")
+CONVERSATIONS_FILE = Path("autoconv3.jsonl")
 
 # Step size: generate completions at assistant token positions 0, K, 2K, ...
 K = 1
