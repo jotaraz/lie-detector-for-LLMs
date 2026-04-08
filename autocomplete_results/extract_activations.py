@@ -59,6 +59,7 @@ from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 AUTOCOMPLETE_DIR = Path(__file__).parent
+tag = "autoconv3"
 
 # ---------------------------------------------------------------------------
 # Chat-template helpers  (adapted from autocomplete.py in the repo root)
@@ -428,15 +429,15 @@ def main() -> None:
     args = parser.parse_args()
     x: int = args.x
 
-    files = sorted(AUTOCOMPLETE_DIR.glob("autoconv2_*.jsonl"))
+    files = sorted(AUTOCOMPLETE_DIR.glob(tag+"_*.jsonl"))
     if not files:
-        print("No autoconv2_*.jsonl files found.", file=sys.stderr)
+        print(f"No {tag}_*.jsonl files found.", file=sys.stderr)
         sys.exit(1)
 
     print(f"Found {len(files)} file(s).  n_gen_tokens (x) = {x}", flush=True)
 
     for jsonl_path in files:
-        model_tag = jsonl_path.stem.removeprefix("autoconv2_")
+        model_tag = jsonl_path.stem.removeprefix(tag+"_")
 
         if args.models and model_tag not in args.models:
             print(f"\nSkipping {model_tag} (not in --models list)", flush=True)
@@ -446,7 +447,7 @@ def main() -> None:
             print(f"\nSkipping {model_tag}: no entry in MODEL_CONFIGS", flush=True)
             continue
 
-        out_path = AUTOCOMPLETE_DIR / f"activations_{model_tag}.pt"
+        out_path = AUTOCOMPLETE_DIR / f"{tag}_activations_{model_tag}.pt"
         if out_path.exists():
             print(f"\nSkipping {model_tag}: {out_path.name} already exists", flush=True)
             continue
