@@ -370,14 +370,69 @@ def load_jsonl_completions(
                 prefix_i1      = ac_next.get("assistant_prefix", "")
                 conv_tokens[i] = prefix_i1[len(prefix_i):]
             else:
-                # Last prefix: the completion itself starts with the next token;
-                # use the start of the completion as a best-effort approximation.
-                conv_tokens[i] = conv_texts[i]
+                # Last prefix: no i+1 exists, so we cannot derive the next token.
+                conv_tokens[i] = ""
 
         next_texts.append(conv_texts)
         next_tokens.append(conv_tokens)
 
     return next_texts, next_tokens
+
+
+# ── Hover-text formatters ─────────────────────────────────────────────────────
+
+def _fmt_prefix_hover(next_tok: str, rest_text: str, snip: int) -> str:
+    """Single merged line: bold(next_tok) + rest_text (truncated).
+
+    'rest_text' should be next_texts[c][i+1] — the model's completion
+    when given i+1 ground-truth tokens, so it is never contaminated by
+    the string-stripping divergence bug.
+    """
+    rest = rest_text.rstrip()
+    if not next_tok:
+        # Last prefix position — next token unknown; show rest unbolded.
+        snippet = rest[:snip]
+        return "<br>" + _esc(snippet) + ("…" if len(rest) > snip else "")
+    snippet = rest[:snip]
+    return (
+        "<br>"
+        + f"<b>{_esc(next_tok)}</b>"
+        + _esc(snippet)
+        + ("…" if len(rest) > snip else "")
+    )
+
+
+def _fmt_gen_hover(
+    anchor_tok: str,
+    next_tok: str | None,
+    rest_text: str,
+    snip: int,
+    have_data: bool,
+) -> str:
+    """Single merged line: (anchor_tok) bold(next_tok) rest_text."""
+    if not have_data:
+        return ""
+    rest = rest_text.rstrip()
+    anchor_part = f"({_esc(anchor_tok)}) " if anchor_tok else ""
+    if next_tok is None:
+        return "<br>" + anchor_part + "[beyond tracked prefix]"
+    if not next_tok:
+        # next token unknown (last prefix position)
+        snippet = rest[:snip]
+        return (
+            "<br>"
+            + anchor_part
+            + _esc(snippet)
+            + ("…" if len(rest) > snip else "")
+        )
+    snippet = rest[:snip]
+    return (
+        "<br>"
+        + anchor_part
+        + f"<b>{_esc(next_tok)}</b>"
+        + _esc(snippet)
+        + ("…" if len(rest) > snip else "")
+    )
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -482,10 +537,11 @@ def main() -> None:
                 hovertext=[
                     f"<b>Conv {c}</b> — Prefix i={i} ({label})"
                     + (
-                        f"<br>next token: <b><code>{_esc(repr(next_tokens[c][i]))}</code></b>"
-                        + f"<br>completion: <i>{_esc(next_texts[c][i][:_SNIP])}"
-                        + ("…" if len(next_texts[c][i]) > _SNIP else "")
-                        + "</i>"
+                        _fmt_prefix_hover(
+                            next_tokens[c][i],
+                            next_texts[c][i + 1] if i + 1 < n_pre else "",
+                            _SNIP,
+                        )
                         if next_texts else ""
                     )
                     for i in range(n_pre)
@@ -507,12 +563,12 @@ def main() -> None:
                     line=dict(color=col, width=2.0, dash="dot"),
                     hovertext=[""] + [
                         f"<b>Conv {c}</b> — Gen prefix i={i} step={s} ({label})"
-                        + (
-                            f"<br>next token (i): <b><code>{_esc(repr(next_tokens[c][i]))}</code></b>"
-                            + f"<br>completion: <i>{_esc(next_texts[c][i][:_SNIP])}"
-                            + ("…" if len(next_texts[c][i]) > _SNIP else "")
-                            + "</i>"
-                            if next_texts else ""
+                        + _fmt_gen_hover(
+                            anchor_tok=next_tokens[c][i],
+                            next_tok=next_tokens[c][i + s] if i + s < n_pre else None,
+                            rest_text=next_texts[c][i + s + 1] if i + s + 1 < n_pre else "",
+                            snip=_SNIP,
+                            have_data=bool(next_texts),
                         )
                         for s in range(x)
                     ],
