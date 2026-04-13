@@ -307,15 +307,19 @@ def _esc(s: str) -> str:
 
 def load_jsonl_completions(
     pt_path: Path, n_conversations: int, n_prefix: int
-) -> list[list[str]] | None:
-    """Find the matching JSONL file and return completion text per (conv, prefix).
+) -> tuple[list[list[str]], list[list[str]]] | tuple[None, None]:
+    """Find the matching JSONL file and return completion text and next tokens per (conv, prefix).
 
     The .pt file is named  <tag>_activations_<model_tag>.pt;
     the JSONL is named     <tag>_<model_tag>.jsonl  (same directory).
 
-    Returns next_texts[c][i] = the full completion string the model generated
-    when given the first i ground-truth assistant tokens as context for
-    conversation c.  Returns None if the file cannot be found.
+    Returns a tuple (next_texts, next_tokens) where:
+      next_texts[c][i]  = the full completion string the model generated
+                          when given the first i ground-truth assistant tokens
+      next_tokens[c][i] = the single token that was about to be generated at
+                          prefix position i (derived from consecutive assistant
+                          prefixes: prefix[i+1][len(prefix[i]):])
+    Returns (None, None) if the file cannot be found.
     """
     stem = pt_path.stem  # e.g. "autoconv3_activations_meta-llama_Llama-3.1-8B-Instruct"
     jsonl_stem = stem.replace("_activations_", "_", 1)
@@ -325,7 +329,7 @@ def load_jsonl_completions(
             f"  No matching JSONL at {jsonl_path.name} — hover text will lack token info.",
             flush=True,
         )
-        return None
+        return None, None
 
     print(f"  Loading completion data from {jsonl_path.name} …", flush=True)
     entries = []
@@ -339,18 +343,41 @@ def load_jsonl_completions(
             f"  Warning: JSONL has {len(entries)} entries, expected {n_conversations}.",
             flush=True,
         )
-        return None
+        return None, None
 
-    next_texts: list[list[str]] = []
+    next_texts:  list[list[str]] = []
+    next_tokens: list[list[str]] = []
     for entry in entries[:n_conversations]:
-        conv_texts = [""] * n_prefix
-        for ac in entry.get("autocompletes", []):
+        acs = entry.get("autocompletes", [])
+        # Index autocompletes by tokens_provided for O(1) lookup
+        ac_by_i: dict[int, dict] = {}
+        for ac in acs:
             i = ac.get("tokens_provided", -1)
             if 0 <= i < n_prefix:
-                conv_texts[i] = ac.get("completion", "")
-        next_texts.append(conv_texts)
+                ac_by_i[i] = ac
 
-    return next_texts
+        conv_texts  = [""] * n_prefix
+        conv_tokens = [""] * n_prefix
+        for i in range(n_prefix):
+            ac = ac_by_i.get(i)
+            if ac is None:
+                continue
+            conv_texts[i] = ac.get("completion", "")
+            # Next token = text added between prefix i and prefix i+1
+            prefix_i   = ac.get("assistant_prefix", "")
+            ac_next    = ac_by_i.get(i + 1)
+            if ac_next is not None:
+                prefix_i1      = ac_next.get("assistant_prefix", "")
+                conv_tokens[i] = prefix_i1[len(prefix_i):]
+            else:
+                # Last prefix: the completion itself starts with the next token;
+                # use the start of the completion as a best-effort approximation.
+                conv_tokens[i] = conv_texts[i]
+
+        next_texts.append(conv_texts)
+        next_tokens.append(conv_tokens)
+
+    return next_texts, next_tokens
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -390,8 +417,8 @@ def main() -> None:
     print(f"N={N}  D={D}  n_prefix={n_pre}  n_gen_steps={x}  "
           f"model={model_short}", flush=True)
 
-    # ── Load per-(conv, prefix) completion strings from JSONL if available ────
-    next_texts = load_jsonl_completions(Path(args.pt_file), N, n_pre)
+    # ── Load per-(conv, prefix) completion strings and next tokens from JSONL ──
+    next_texts, next_tokens = load_jsonl_completions(Path(args.pt_file), N, n_pre)
     _SNIP = 70  # max chars shown in hover
 
     step_sizes = gen_step_sizes(x)
@@ -455,7 +482,8 @@ def main() -> None:
                 hovertext=[
                     f"<b>Conv {c}</b> — Prefix i={i} ({label})"
                     + (
-                        f"<br>→ <i>{_esc(next_texts[c][i][:_SNIP])}"
+                        f"<br>next token: <b><code>{_esc(repr(next_tokens[c][i]))}</code></b>"
+                        + f"<br>completion: <i>{_esc(next_texts[c][i][:_SNIP])}"
                         + ("…" if len(next_texts[c][i]) > _SNIP else "")
                         + "</i>"
                         if next_texts else ""
@@ -480,7 +508,8 @@ def main() -> None:
                     hovertext=[""] + [
                         f"<b>Conv {c}</b> — Gen prefix i={i} step={s} ({label})"
                         + (
-                            f"<br>completion: <i>{_esc(next_texts[c][i][:_SNIP])}"
+                            f"<br>next token (i): <b><code>{_esc(repr(next_tokens[c][i]))}</code></b>"
+                            + f"<br>completion: <i>{_esc(next_texts[c][i][:_SNIP])}"
                             + ("…" if len(next_texts[c][i]) > _SNIP else "")
                             + "</i>"
                             if next_texts else ""
