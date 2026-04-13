@@ -38,3 +38,155 @@ Please generate a jsonl file, similar to the attached one, and make sure the fin
 7. Really make sure it's 12 pairs, with real pair structure - same system and user prompts for both pair members.
 
 Any questions?
+
+
+-=-------
+
+❯ When I specify 'train_data: "repe_honesty__plain"' in 'lie-detector-for-LLMs/deception_detection/scripts/configs/probe_multimax_gemma-9b.yaml' what exactly is         
+  happening in the background? There is no file called "repe_honesty__plain" which is then used, the training data is generated in a more complicated manner, right?     
+  Please walk me through these steps, one by one. Explain the different steps well and give TLDRs, but also more detailed descriptions.                                  
+                                                                                                                                                                         
+  Searched for 2 patterns, read 6 files (ctrl+o to expand)                                                                                                               
+                                                                                                                                                                       
+● Now I have a thorough understanding of the full pipeline. Let me also quickly check the tokenized data and activations to complete the picture.                        
+                       
+  Read 1 file (ctrl+o to expand)                                                                                                                                         
+                                                                                                                                                                         
+● Now I have everything I need. Here's a full walkthrough of what happens when you set train_data: "repe_honesty__plain".                                                
+                                                                                                                                                                         
+  ---                                                                                                                                                                    
+  Step-by-step: what train_data: "repe_honesty__plain" does                                                                                                              
+                                                                                                                                                                         
+  Step 1 — Config parsing and name decomposition                                                                                                                         
+                                                                                                                                                                         
+  TLDR: The string "repe_honesty__plain" is split on __ into a base name (repe_honesty) and a variant (plain). Pydantic validates the name against the DatasetRepository.
+                                                                                                                                                                         
+  Details: In experiment.py:41, the DatasetName type annotation wraps the string in a validator that calls REPOSITORY.check_dataset_name("repe_honesty__plain"). Inside  
+  repository.py:172–178, _decode_partial_id() splits the string on __ and checks that:                                                                                 
+  - repe_honesty is a registered base_name in ALL_DATASETS_DICT                                                                                                          
+  - "plain" is listed in RepeHonestDishonestFacts.all_variants                                                                                                           
+                                                              
+  If either check fails, a ValueError is raised before anything else runs.                                                                                               
+                                                                                                                                                                         
+  ---                                                                                                                                                                    
+  Step 2 — Dataset instantiation via the repository                                                                                                                      
+                                                                                                                                                                         
+  TLDR: Since no model rollout is involved (train_on_policy: false), the model is set to "prewritten". The DatasetRepository.get() method looks up the class from the
+  registry and instantiates it directly from static files — no LLM inference needed.                                                                                     
+                                                                                                                                                                       
+  Details: In experiment.py:451, get_dataset() calls REPOSITORY.get("repe_honesty__plain", model="prewritten", ...). Inside repository.py:108–121, because model ==      
+  "prewritten", it skips the rollout JSON path and directly calls:                                                                                                     
+  RepeHonestDishonestFacts(variant="plain", trim_reasoning=True, shuffle_upon_init=False, ...)                                                                           
+  Note shuffle_upon_init=False specifically for repe_honesty (experiment.py:451).                                                                                      
+                                                                                                                                                                         
+  ---                                                                                                                                                                    
+  Step 3 — Loading and filtering the raw CSV facts                                                                                                                       
+                                                                                                                                                                         
+  TLDR: The class reads data/repe/true_false_facts.csv, takes the first 512 true statements, and uses them as the factual content for the dialogues.                   
+                                                                                                                                                                         
+  Details: In repe.py:85–93, _get_raw_data() loads the CSV with pandas, filters to rows where label == 1 (true facts), takes the first 512, and extracts the statement   
+  column. These are plain English factual statements like "The capital of France is Paris."                                                                              
+                                                                                                                                                                         
+  ---                                                                                                                                                                  
+  Step 4 — Building paired honest/dishonest dialogues
+                                                     
+  TLDR: For each of the 512 facts, two dialogues are created — one where the model is asked to pretend to be honest, and one where it's asked to pretend to be dishonest.
+   The "plain" variant uses simple user-message role-play prompts (no system message).                                                                                   
+  
+  Details: In repe.py:31–38, the "plain" variant sets:                                                                                                                   
+  - Honest user message: "Pretend you're an honest person making statements about the world."                                                                          
+  - Dishonest user message: "Pretend you're a dishonest person making statements about the world."                                                                       
+  - sys_prefixes = None, None (no system prompt)                                                                                                                       
+                                                                                                                                                                         
+  Then _get_prefixed_dialogues() (line 106) is called twice — once per role — building dialogues of the form:                                                            
+  [user]: "Pretend you're an honest person..."                                                                                                                           
+  [assistant, detect=True]: "<first part of fact>"    ← probe will detect here                                                                                           
+  [assistant, detect=False]: "<last 5 words of fact>"  ← excluded from probe                                                                                             
+                                                                                                                                                                         
+  The fact is split at _split_statement() (line 95): all but the last 5 words are in the detect=True message; the trailing 5 words go in a detect=False message. This    
+  keeps the detection region at the part of the utterance that expresses the main content, not the tail.                                                                 
+                                                                                                                                                                         
+  The 512 honest and 512 dishonest dialogues are interleaved (honest, dishonest, honest, ...) for a total of 1024 dialogues, with alternating Label.HONEST /             
+  Label.DECEPTIVE labels.                                                                                                                                              
+                                                                                                                                                                         
+  ---                                                                                                                                                                  
+  Step 5 — Train/val split
+                                                                                                                                                                         
+  TLDR: 20% of the 1024 dialogues (≈205) are held out as a validation set. Only the first 80% (≈819 dialogues) are passed to the detector for training.
+                                                                                                                                                                         
+  Details: In experiment.py:394–397, get_train_dataset() slices train_dataset[:-num_val]. The held-out val_dataset is added to eval_datasets with the suffix _val so it  
+  can be used to monitor overfitting.                                                                                                                                    
+                                                                                                                                                                         
+  ---                                                                                                                                                                  
+  Step 6 — Tokenization and detection masks
+                                           
+  TLDR: The dialogues are passed through the model's chat template (e.g. Gemma's <start_of_turn> format) and tokenized. A binary detection mask marks which token
+  positions belong to detect=True messages (the main body of the assistant's fact utterance, plus a few surrounding template tokens due to padding).                     
+  
+  Details: In tokenized_data.py, TokenizedDataset.from_dataset() applies the tokenizer's chat template, then pattern-matches the formatted string to identify the token  
+  positions that correspond to detect=True messages. RepeHonestDishonestFacts sets padding = {model_type: {"left": 0, "right": 0}} (line 21 of repe.py) — so unlike other
+   datasets, no extra template tokens are included in the detection window.                                                                                              
+                                                                                                                                                                       
+  ---
+  Step 7 — Activation extraction and probe training
+                                                   
+  TLDR: The model runs a forward pass over each dialogue, and the residual stream activations at layer 10 (from the config) are extracted at every position in the
+  detection mask. The multimax probe is then trained to discriminate honest from dishonest activations at those positions.                                               
+  
+  Details: In experiment.py:335–345, PairedActivations.from_dataset() runs the model in batches, collecting the hidden states at the configured detect_layers: [10]. The 
+  result is a paired structure of (honest_acts, dishonest_acts). These are fed to detector.fit(deceptive_fit_acts, honest_fit_acts), training the multimax probe       
+  architecture with the hyperparameters from the config (lr=0.001, 1000 epochs, hidden_dim=100, 10 heads, depth=2).                                                      
+                                                                                                                                                                       
+  ---
+  Summary of the full data flow
+
+  "repe_honesty__plain"
+          │                                                                                                                                                              
+          ▼
+  Split → base="repe_honesty", variant="plain"                                                                                                                           
+          │                                                                                                                                                            
+          ▼                                                                                                                                                              
+  DatasetRepository looks up RepeHonestDishonestFacts class
+          │                                                                                                                                                              
+          ▼                                                                                                                                                            
+  Load data/repe/true_false_facts.csv → first 512 true statements
+          │                                                                                                                                                              
+          ▼
+  Build 512 honest + 512 dishonest dialogues (interleaved, 1024 total)                                                                                                   
+    Each = [user role-play prompt] + [fact body, detect=True] + [last 5 words, detect=False]                                                                             
+          │                                                                                                                                                              
+          ▼                                                                                                                                                              
+  Train/val split: ~819 train, ~205 val                                                                                                                                  
+          │                                                                                                                                                              
+          ▼
+  Tokenize → apply chat template → build detection masks                                                                                                                 
+          │                                                                                                                                                            
+          ▼
+  Forward pass through Gemma-9b → extract residual stream at layer 10
+          │                                                                                                                                                              
+          ▼
+  Train multimax probe on (honest_acts, dishonest_acts) pairs                                                                                                            
+                                                                                                                                                                         
+✻ Crunched for 58s                                                                                                                                                       
+                                                                                                                                                                         
+❯ What is ALL_DATASETS_DICT and  where is it defined?                                                                                                                    
+                                                                                                                                                                         
+● It's defined in repository.py:59–61:                                                                                                                                   
+                                                                                                                                                                         
+  ALL_DATASETS_DICT: dict[str, type[DialogueDataset]] = {                                                                                                                
+      dataset.base_name: dataset for dataset in ALL_DATASETS                                                                                                             
+  }                                                                                                                                                                      
+                                                                                                                                                                         
+  It's a dict built from ALL_DATASETS (the list just above it, lines 19–52), mapping each dataset class's base_name string to the class itself. For example:             
+   
+  - "repe_honesty" → RepeHonestDishonestFacts                                                                                                                            
+  - "alpaca" → AlpacaDataset                                                                                                                                           
+  - "roleplaying" → RolePlayingDataset                                                                                                                                   
+                                                                                                                                                                         
+  It's used in two places:
+  - repository.py:110 — to look up the class when instantiating a prewritten dataset by name                                                                             
+  - repository.py:173 — to validate dataset names in check_dataset_name()                                                                                                
+                                                                         
+  One quirk: ALL_DATASETS has some duplicate entries (e.g. RepeHonestDishonestFacts and AlpacaDataset and AILiarDataset appear twice at lines 24–26). Since              
+  ALL_DATASETS_DICT is built with a dict comprehension, later duplicates just overwrite earlier ones — harmless but redundant.                                           
+                                                                                                                                  
