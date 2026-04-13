@@ -31,6 +31,7 @@ Layer mapping:  0 → L//4   1 → L//2 (default)   2 → 3·L//4
 """
 
 import argparse
+import html as _html_mod
 import json
 import sys
 from pathlib import Path
@@ -297,6 +298,61 @@ function setAllGen(show) {{
 """
 
 
+# ── JSONL completion loader ───────────────────────────────────────────────────
+
+def _esc(s: str) -> str:
+    """Escape a string for safe embedding in HTML hover text."""
+    return _html_mod.escape(s, quote=False)
+
+
+def load_jsonl_completions(
+    pt_path: Path, n_conversations: int, n_prefix: int
+) -> list[list[str]] | None:
+    """Find the matching JSONL file and return completion text per (conv, prefix).
+
+    The .pt file is named  <tag>_activations_<model_tag>.pt;
+    the JSONL is named     <tag>_<model_tag>.jsonl  (same directory).
+
+    Returns next_texts[c][i] = the full completion string the model generated
+    when given the first i ground-truth assistant tokens as context for
+    conversation c.  Returns None if the file cannot be found.
+    """
+    stem = pt_path.stem  # e.g. "autoconv3_activations_meta-llama_Llama-3.1-8B-Instruct"
+    jsonl_stem = stem.replace("_activations_", "_", 1)
+    jsonl_path = pt_path.parent / f"{jsonl_stem}.jsonl"
+    if not jsonl_path.exists():
+        print(
+            f"  No matching JSONL at {jsonl_path.name} — hover text will lack token info.",
+            flush=True,
+        )
+        return None
+
+    print(f"  Loading completion data from {jsonl_path.name} …", flush=True)
+    entries = []
+    with jsonl_path.open() as f:
+        for line in f:
+            if line.strip():
+                entries.append(json.loads(line))
+
+    if len(entries) < n_conversations:
+        print(
+            f"  Warning: JSONL has {len(entries)} entries, expected {n_conversations}.",
+            flush=True,
+        )
+        return None
+
+    next_texts: list[list[str]] = []
+    for entry in entries[:n_conversations]:
+        conv_texts = [""] * n_prefix
+        for ac in entry.get("autocompletes", []):
+            i = ac.get("tokens_provided", -1)
+            if 0 <= i < n_prefix:
+                conv_texts[i] = ac.get("completion", "")
+        next_texts.append(conv_texts)
+
+    return next_texts
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -333,6 +389,10 @@ def main() -> None:
 
     print(f"N={N}  D={D}  n_prefix={n_pre}  n_gen_steps={x}  "
           f"model={model_short}", flush=True)
+
+    # ── Load per-(conv, prefix) completion strings from JSONL if available ────
+    next_texts = load_jsonl_completions(Path(args.pt_file), N, n_pre)
+    _SNIP = 70  # max chars shown in hover
 
     step_sizes = gen_step_sizes(x)
     y1d_lanes  = np.linspace(-0.45, 0.45, N)
@@ -392,8 +452,16 @@ def main() -> None:
                             symbol=["star"] + ["circle"] * (n_pre - 1),
                             line=dict(width=0.5, color="rgba(255,255,255,0.6)")),
                 line=dict(color=p_lcol, width=3.5),
-                hovertext=[f"<b>Conv {c}</b> — Prefix i={i} ({label})"
-                           for i in range(n_pre)],
+                hovertext=[
+                    f"<b>Conv {c}</b> — Prefix i={i} ({label})"
+                    + (
+                        f"<br>→ <i>{_esc(next_texts[c][i][:_SNIP])}"
+                        + ("…" if len(next_texts[c][i]) > _SNIP else "")
+                        + "</i>"
+                        if next_texts else ""
+                    )
+                    for i in range(n_pre)
+                ],
                 hoverinfo="text",
             ))
 
@@ -411,6 +479,12 @@ def main() -> None:
                     line=dict(color=col, width=2.0, dash="dot"),
                     hovertext=[""] + [
                         f"<b>Conv {c}</b> — Gen prefix i={i} step={s} ({label})"
+                        + (
+                            f"<br>completion: <i>{_esc(next_texts[c][i][:_SNIP])}"
+                            + ("…" if len(next_texts[c][i]) > _SNIP else "")
+                            + "</i>"
+                            if next_texts else ""
+                        )
                         for s in range(x)
                     ],
                     hoverinfo="text",
