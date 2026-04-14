@@ -111,11 +111,14 @@ class ActivationCapturer:
 
     def _make_hook(self, layer_idx):
         def fn(module, input, output):
-            hidden = output[0].detach()  # (batch, seq_len, d)
+            hidden = output[0].detach()
+            # Some transformers versions return (seq_len, d) instead of
+            # (batch, seq_len, d).  Normalise to 3-D.
+            if hidden.dim() == 2:
+                hidden = hidden.unsqueeze(0)
             if self.capture_all_positions:
                 self.activations[layer_idx] = hidden.cpu()
             else:
-                # Single-token generation: just keep the last position
                 self.activations[layer_idx] = hidden[:, -1:, :].cpu()
         return fn
 
