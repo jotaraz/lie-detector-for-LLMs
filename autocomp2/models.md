@@ -1,0 +1,5 @@
+Qwen/Qwen2.5-32B-Instruct
+google/gemma-2-9b-it
+google/gemma-3-12b-it
+meta-llama/Llama-3.1-8B-Instruct
+meta-llama/Llama-3.3-70B-Instruct
