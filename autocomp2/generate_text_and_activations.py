@@ -17,6 +17,21 @@ import os
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, DynamicCache
 
+def _load_model(model_id):
+    """Load a model, trying AutoModelForCausalLM first, then falling back to
+    AutoModelForConditionalGeneration for multimodal models (Gemma 3/4,
+    Mistral Small 3.1, etc.)."""
+    kwargs = dict(torch_dtype=torch.bfloat16, device_map="auto",
+                  trust_remote_code=True)
+    try:
+        model = AutoModelForCausalLM.from_pretrained(model_id, **kwargs)
+    except (ValueError, KeyError):
+        from transformers import AutoModelForConditionalGeneration
+        model = AutoModelForConditionalGeneration.from_pretrained(
+            model_id, **kwargs)
+    model.eval()
+    return model
+
 # ── Hyperparameters (adjust as needed) ───────────────────────────────────────
 M = 10          # autocompletion length: number of tokens to generate per prefix
 C = 15          # considered length: number of prefix positions to iterate over
@@ -98,17 +113,22 @@ def _find_decoder_layers(model):
     """Locate the nn.ModuleList of decoder layers across model architectures.
 
     Tries explicit paths first, then falls back to a recursive search for
-    any nn.ModuleList whose children look like decoder layers.
+    the largest nn.ModuleList whose children look like decoder layers
+    (i.e. contain an attention sub-module).  The recursive search reliably
+    handles novel multimodal wrappers (Gemma 3/4, Mistral 3, etc.) and also
+    correctly skips shorter vision-encoder layer lists.
     """
     import torch.nn as nn
 
     # ── Explicit paths (fast) ────────────────────────────────────────────
     candidates = [
-        lambda m: m.model.layers,                        # Llama, Gemma 2, Qwen
-        lambda m: m.language_model.model.layers,         # some multimodal
-        lambda m: m.model.language_model.model.layers,   # some multimodal alt
-        lambda m: m.model.text_model.layers,             # alt naming
-        lambda m: m.transformer.h,                       # GPT-style
+        lambda m: m.model.layers,                            # Llama, Gemma 2, Qwen, Mistral
+        lambda m: m.language_model.model.layers,             # some multimodal
+        lambda m: m.model.language_model.model.layers,       # Gemma 3 / 4
+        lambda m: m.model.text_model.layers,                 # alt naming
+        lambda m: m.text_model.model.layers,                 # alt naming 2
+        lambda m: m.language_model.layers,                   # flat multimodal
+        lambda m: m.transformer.h,                           # GPT-style
     ]
     for fn in candidates:
         try:
@@ -119,13 +139,14 @@ def _find_decoder_layers(model):
             continue
 
     # ── Recursive fallback: find the largest nn.ModuleList ───────────────
+    # Decoder layer lists are always the *longest* list with attention
+    # sub-modules (vision encoders are shorter).
     best, best_len = None, 0
     for name, module in model.named_modules():
         if isinstance(module, nn.ModuleList) and len(module) > best_len:
-            # Sanity-check: decoder layers typically have self-attention
             first = module[0]
-            if any("attn" in n or "attention" in n
-                   for n, _ in first.named_modules()):
+            if any(kw in n for n, _ in first.named_modules()
+                   for kw in ("attn", "attention", "self_attn")):
                 best, best_len = module, len(module)
     if best is not None:
         print(f"  [info] Found decoder layers via fallback search "
@@ -241,11 +262,7 @@ def process_model(model_id, conversations, m, c, layer_indices,
         with open(json_path) as f:
             saved_data = json.load(f)
         print(f"Loading model {model_id} ...")
-        model = AutoModelForCausalLM.from_pretrained(
-            model_id, torch_dtype=torch.bfloat16, device_map="auto",
-            trust_remote_code=True,
-        )
-        model.eval()
+        model = _load_model(model_id)
         _run_activation_only(model, tokenizer, saved_data, layer_indices,
                              pt_path, device)
         del model
@@ -254,11 +271,7 @@ def process_model(model_id, conversations, m, c, layer_indices,
 
     # ── normal / text-only mode ──────────────────────────────────────────
     print(f"Loading model {model_id} ...")
-    model = AutoModelForCausalLM.from_pretrained(
-        model_id, torch_dtype=torch.bfloat16, device_map="auto",
-        trust_remote_code=True,
-    )
-    model.eval()
+    model = _load_model(model_id)
 
     eos_ids = get_eos_token_ids(model, tokenizer)
     capture_acts = not text_only
