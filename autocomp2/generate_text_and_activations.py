@@ -97,14 +97,17 @@ def get_eos_token_ids(model, tokenizer):
 def _find_decoder_layers(model):
     """Locate the nn.ModuleList of decoder layers across model architectures.
 
-    Handles standard CausalLM (model.model.layers), multimodal models like
-    Gemma 3 (model.language_model.model.layers), and GPT-style models
-    (model.transformer.h).
+    Tries explicit paths first, then falls back to a recursive search for
+    any nn.ModuleList whose children look like decoder layers.
     """
+    import torch.nn as nn
+
+    # ── Explicit paths (fast) ────────────────────────────────────────────
     candidates = [
         lambda m: m.model.layers,                        # Llama, Gemma 2, Qwen
-        lambda m: m.language_model.model.layers,         # Gemma 3
-        lambda m: m.model.language_model.model.layers,   # Gemma 3 alt
+        lambda m: m.language_model.model.layers,         # some multimodal
+        lambda m: m.model.language_model.model.layers,   # some multimodal alt
+        lambda m: m.model.text_model.layers,             # alt naming
         lambda m: m.transformer.h,                       # GPT-style
     ]
     for fn in candidates:
@@ -114,6 +117,21 @@ def _find_decoder_layers(model):
                 return layers
         except (AttributeError, TypeError):
             continue
+
+    # ── Recursive fallback: find the largest nn.ModuleList ───────────────
+    best, best_len = None, 0
+    for name, module in model.named_modules():
+        if isinstance(module, nn.ModuleList) and len(module) > best_len:
+            # Sanity-check: decoder layers typically have self-attention
+            first = module[0]
+            if any("attn" in n or "attention" in n
+                   for n, _ in first.named_modules()):
+                best, best_len = module, len(module)
+    if best is not None:
+        print(f"  [info] Found decoder layers via fallback search "
+              f"({best_len} layers)")
+        return best
+
     raise ValueError(f"Cannot locate decoder layers in {type(model).__name__}")
 
 
