@@ -94,6 +94,39 @@ def get_eos_token_ids(model, tokenizer):
 
 # ── Activation capture via forward hooks ─────────────────────────────────────
 
+def _find_decoder_layers(model):
+    """Locate the nn.ModuleList of decoder layers across model architectures.
+
+    Handles standard CausalLM (model.model.layers), multimodal models like
+    Gemma 3 (model.language_model.model.layers), and GPT-style models
+    (model.transformer.h).
+    """
+    candidates = [
+        lambda m: m.model.layers,                        # Llama, Gemma 2, Qwen
+        lambda m: m.language_model.model.layers,         # Gemma 3
+        lambda m: m.model.language_model.model.layers,   # Gemma 3 alt
+        lambda m: m.transformer.h,                       # GPT-style
+    ]
+    for fn in candidates:
+        try:
+            layers = fn(model)
+            if layers is not None and len(layers) > 0:
+                return layers
+        except (AttributeError, TypeError):
+            continue
+    raise ValueError(f"Cannot locate decoder layers in {type(model).__name__}")
+
+
+def _get_hidden_size(model):
+    """Get the residual-stream dimension, checking nested configs."""
+    config = model.config
+    if hasattr(config, "hidden_size") and config.hidden_size is not None:
+        return config.hidden_size
+    if hasattr(config, "text_config") and hasattr(config.text_config, "hidden_size"):
+        return config.text_config.hidden_size
+    raise ValueError(f"Cannot determine hidden_size for {type(model).__name__}")
+
+
 class ActivationCapturer:
     """Register hooks on specified decoder layers to capture residual-stream
     activations (the output hidden states of each hooked layer)."""
@@ -104,7 +137,7 @@ class ActivationCapturer:
         self.hooks = []
         self.capture_all_positions = False  # True during prefill
 
-        layers = model.model.layers
+        layers = _find_decoder_layers(model)
         for idx in layer_indices:
             hook = layers[idx].register_forward_hook(self._make_hook(idx))
             self.hooks.append(hook)
@@ -214,7 +247,7 @@ def process_model(model_id, conversations, m, c, layer_indices,
     capturer = ActivationCapturer(model, layer_indices) if capture_acts else None
 
     N = len(conversations)
-    d = model.config.hidden_size
+    d = _get_hidden_size(model)
     L = len(layer_indices)
     if capture_acts:
         all_acts = torch.zeros(N, c, m, L, d, dtype=torch.bfloat16)
@@ -356,7 +389,7 @@ def _run_activation_only(model, tokenizer, saved_data, layer_indices,
     m = saved_data["m"]
     c = saved_data["c"]
     N = len(saved_data["conversations"])
-    d = model.config.hidden_size
+    d = _get_hidden_size(model)
     L = len(layer_indices)
 
     capturer = ActivationCapturer(model, layer_indices)
