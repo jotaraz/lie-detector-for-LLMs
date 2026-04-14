@@ -102,7 +102,7 @@ def make_prefix_label(ref_tokens, i, c_k):
     for idx in range(c_k):
         tok = _esc(ref_tokens[idx])
         if idx == i:
-            parts.append(f"<b>{tok}</b>")
+            parts.append(f"<b style=\"color:#e91e8a\">{tok}</b>")
         else:
             parts.append(tok)
     return "".join(parts)
@@ -125,7 +125,7 @@ def make_autocomplete_label(ref_tokens, ac_tokens, i, j):
             continue
         tok_esc = _esc(tok)
         if jj == j:
-            parts.append(f"<b>{tok_esc}</b>")
+            parts.append(f"<b style=\"color:#e91e8a\">{tok_esc}</b>")
         else:
             parts.append(tok_esc)
     return "".join(parts)
