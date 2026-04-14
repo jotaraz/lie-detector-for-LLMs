@@ -22,6 +22,7 @@ LARGE_FILE_SPECS = [
     ("results", "*_all_tokens.json"),
     ("results", "control_scores.json"),
     ("autocomplete_results", "*.pt"),
+    ("autocomp2/data", "*.pt"),
 ]
 
 
