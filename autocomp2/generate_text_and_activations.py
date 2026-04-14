@@ -427,8 +427,16 @@ def main():
         print(f"{'=' * 60}")
 
         config = AutoConfig.from_pretrained(model_id, trust_remote_code=True)
-        layer_indices = get_default_layer_indices(config.num_hidden_layers)
-        print(f"  Depth D={config.num_hidden_layers}, "
+        # Some models (e.g. Gemma 3) use a composite config where
+        # num_hidden_layers lives inside a sub-config (text_config).
+        if hasattr(config, "num_hidden_layers"):
+            num_layers = config.num_hidden_layers
+        elif hasattr(config, "text_config") and hasattr(config.text_config, "num_hidden_layers"):
+            num_layers = config.text_config.num_hidden_layers
+        else:
+            raise ValueError(f"Cannot determine num_hidden_layers for {model_id}")
+        layer_indices = get_default_layer_indices(num_layers)
+        print(f"  Depth D={num_layers}, "
               f"hooking layers {layer_indices}")
 
         process_model(
