@@ -95,14 +95,20 @@ def _esc(s):
     return html_lib.escape(s)
 
 
-def make_prefix_label(ref_tokens, i, c_k):
+def _bold_color(k):
+    """Pink for even-k (blue/green traces), lightgreen for odd-k (red/orange)."""
+    return "#e91e8a" if k % 2 == 0 else "lightgreen"
+
+
+def make_prefix_label(ref_tokens, i, c_k, k):
     """Hover label for prefix-activation_{k,i}: show first c_k reference
     tokens with token i in bold."""
+    color = _bold_color(k)
     parts = []
     for idx in range(c_k):
         tok = _esc(ref_tokens[idx])
         if idx == i:
-            parts.append(f"<b style=\"color:#e91e8a\">{tok}</b>")
+            parts.append(f"<b style=\"color:{color}\">{tok}</b>")
         else:
             parts.append(tok)
     return "".join(parts)
@@ -113,9 +119,10 @@ def make_whole_convo_label(ref_tokens, c_k):
     return "".join(_esc(t) for t in ref_tokens[:c_k])
 
 
-def make_autocomplete_label(ref_tokens, ac_tokens, i, j):
+def make_autocomplete_label(ref_tokens, ac_tokens, i, j, k):
     """Hover label for autocompletion-activation_{k,i,j}:
     R^{(k)}_i underlined, full AC shown, token ac_{i,j} bold."""
+    color = _bold_color(k)
     parts = []
     if i > 0:
         prefix_text = "".join(_esc(t) for t in ref_tokens[:i])
@@ -125,7 +132,7 @@ def make_autocomplete_label(ref_tokens, ac_tokens, i, j):
             continue
         tok_esc = _esc(tok)
         if jj == j:
-            parts.append(f"<b style=\"color:#e91e8a\">{tok_esc}</b>")
+            parts.append(f"<b style=\"color:{color}\">{tok_esc}</b>")
         else:
             parts.append(tok_esc)
     return "".join(parts)
@@ -151,7 +158,7 @@ def build_vis_data(json_data, acts_tensor, layer_indices, methods):
 
         prefix_labels = []
         for i in range(c_k):
-            prefix_labels.append(make_prefix_label(ref_tokens, i, c_k))
+            prefix_labels.append(make_prefix_label(ref_tokens, i, c_k, k))
 
         wc_label = make_whole_convo_label(ref_tokens, c_k)
 
@@ -164,7 +171,7 @@ def build_vis_data(json_data, acts_tensor, layer_indices, methods):
                     row.append("")
                 else:
                     row.append(make_autocomplete_label(
-                        ref_tokens, ac["tokens"], i, j))
+                        ref_tokens, ac["tokens"], i, j, k))
             ac_labels.append(row)
 
         label_data.append({
