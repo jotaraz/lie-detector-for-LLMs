@@ -135,14 +135,35 @@ class ActivationCapturer:
 def clone_kv_cache(cache, end_pos):
     """Return a deep copy of *cache* truncated to the first *end_pos* positions.
 
-    Works with transformers' DynamicCache.  The clone is independent of the
-    original so that autoregressive generation can extend it freely.
+    Handles both newer transformers (key_cache/value_cache attributes) and
+    older versions (tuple-of-tuples), as well as DynamicCache with only the
+    .update() / len() interface.
     """
+    # ── Tuple-of-tuples cache (older transformers) ───────────────────────
+    if isinstance(cache, tuple):
+        return tuple(
+            (k[:, :, :end_pos, :].clone(), v[:, :, :end_pos, :].clone())
+            for k, v in cache
+        )
+
+    # ── DynamicCache with key_cache / value_cache lists (transformers ≥4.38)
+    if hasattr(cache, "key_cache"):
+        new = DynamicCache()
+        for layer_idx in range(len(cache.key_cache)):
+            k = cache.key_cache[layer_idx][:, :, :end_pos, :].clone()
+            v = cache.value_cache[layer_idx][:, :, :end_pos, :].clone()
+            new.update(k, v, layer_idx)
+        return new
+
+    # ── Older DynamicCache that exposes items via __getitem__ / __len__ ──
     new = DynamicCache()
-    for layer_idx in range(len(cache.key_cache)):
-        k = cache.key_cache[layer_idx][:, :, :end_pos, :].clone()
-        v = cache.value_cache[layer_idx][:, :, :end_pos, :].clone()
-        new.update(k, v, layer_idx)
+    for layer_idx in range(len(cache)):
+        k, v = cache[layer_idx]
+        new.update(
+            k[:, :, :end_pos, :].clone(),
+            v[:, :, :end_pos, :].clone(),
+            layer_idx,
+        )
     return new
 
 
