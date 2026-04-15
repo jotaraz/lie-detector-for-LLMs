@@ -306,6 +306,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 <div class="controls" id="ac-bar" style="display:none">
   <div class="group">
     <label>AC i:</label>
+    <button onclick="showAllACI()">show all</button>
+    <button onclick="hideAllACI()">hide all</button>
   </div>
   <div class="group" id="ac-buttons"></div>
 </div>
@@ -425,6 +427,14 @@ function toggleAC() {
 function toggleI(i) {
   if (state.autoI.has(i)) state.autoI.delete(i);
   else state.autoI.add(i);
+  syncButtons(); render();
+}
+function showAllACI() {
+  for (let i = 0; i < DATA.c; i++) state.autoI.add(i);
+  syncButtons(); render();
+}
+function hideAllACI() {
+  state.autoI.clear();
   syncButtons(); render();
 }
 function syncButtons() {
