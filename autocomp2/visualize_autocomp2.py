@@ -15,12 +15,14 @@ Defaults:
     output_file  = autocomp2_viz.html
 """
 
+import argparse
 import json
 import sys
 from pathlib import Path
 
-DATA_DIR = Path("data")
-OUTPUT_FILE = Path("autocomp2_viz.html")
+DEFAULT_JSONL = "autoconv3.jsonl"
+DATA_DIR = Path("data-" + Path(DEFAULT_JSONL).stem)
+OUTPUT_FILE = Path(Path(DEFAULT_JSONL).stem + "_viz.html")
 
 
 def load_models(data_dir: Path) -> dict:
@@ -475,8 +477,26 @@ function trunc(str, n) {{
 
 
 def main() -> None:
-    data_dir = Path(sys.argv[1]) if len(sys.argv) > 1 else DATA_DIR
-    output_file = Path(sys.argv[2]) if len(sys.argv) > 2 else OUTPUT_FILE
+    parser = argparse.ArgumentParser(
+        description="Generate self-contained HTML visualization of autocomp results.")
+    parser.add_argument("--jsonl", type=str, default=None,
+                        help="JSONL conversations file used for generation "
+                             "(default: autoconv3.jsonl). data_dir and output "
+                             "filename are derived from its stem, e.g. "
+                             "autoconv4.jsonl -> data-autoconv4/ + autoconv4_viz.html.")
+    parser.add_argument("data_dir", nargs="?", default=None,
+                        help="Override data directory (positional, optional).")
+    parser.add_argument("output_file", nargs="?", default=None,
+                        help="Override output HTML path (positional, optional).")
+    args = parser.parse_args()
+
+    if args.jsonl:
+        stem = Path(args.jsonl).stem
+        data_dir = Path(f"data-{stem}")
+        output_file = Path(f"{stem}_viz.html")
+    else:
+        data_dir = Path(args.data_dir) if args.data_dir else DATA_DIR
+        output_file = Path(args.output_file) if args.output_file else OUTPUT_FILE
 
     print(f"Loading from {data_dir}/")
     models = load_models(data_dir)

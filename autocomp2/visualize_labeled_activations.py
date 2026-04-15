@@ -25,7 +25,8 @@ UMAP_MIN_DIST = 0.1       # UMAP: minimum distance between embedded points
 UMAP_METRIC = "euclidean"
 
 MODELS_FILE = "models.md"
-DATA_DIR = "data"
+DEFAULT_JSONL = "autoconv3.jsonl"
+DATA_DIR = "data-" + os.path.splitext(os.path.basename(DEFAULT_JSONL))[0]
 
 
 def load_models_list():
@@ -571,11 +572,12 @@ def generate_html(vis_data, output_path):
 
 # ── Main ────────────────────────────────────────────────────────────────────
 
-def process_model(model_id):
+def process_model(model_id, data_dir=None):
+    data_dir = data_dir or DATA_DIR
     fname = model_id_to_filename(model_id)
-    json_path = os.path.join(DATA_DIR, f"{fname}.json")
-    pt_path = os.path.join(DATA_DIR, f"{fname}.pt")
-    html_path = os.path.join(DATA_DIR, f"{fname}.html")
+    json_path = os.path.join(data_dir, f"{fname}.json")
+    pt_path = os.path.join(data_dir, f"{fname}.pt")
+    html_path = os.path.join(data_dir, f"{fname}.html")
 
     print(f"Loading data for {model_id} ...")
     with open(json_path) as f:
@@ -598,10 +600,19 @@ def process_model(model_id):
 def main():
     parser = argparse.ArgumentParser(
         description="Visualise autocompletion activations as interactive HTML.")
+    parser.add_argument("--jsonl", type=str, default=None,
+                        help="JSONL conversations file used for generation "
+                             "(default: autoconv3.jsonl). DATA_DIR is derived "
+                             "from its stem, e.g. autoconv4.jsonl -> data-autoconv4/.")
     parser.add_argument("--model", type=str, default=None,
                         help="HuggingFace model ID. If omitted, process all "
                              "models from models.md.")
     args = parser.parse_args()
+
+    if args.jsonl:
+        data_dir = "data-" + os.path.splitext(os.path.basename(args.jsonl))[0]
+    else:
+        data_dir = None  # process_model will fall back to DATA_DIR
 
     models = [args.model] if args.model else load_models_list()
 
@@ -609,7 +620,7 @@ def main():
         print(f"\n{'=' * 60}")
         print(f"  {model_id}")
         print(f"{'=' * 60}")
-        process_model(model_id)
+        process_model(model_id, data_dir=data_dir)
 
     print("\nAll done.")
 

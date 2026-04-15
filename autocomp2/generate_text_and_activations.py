@@ -34,11 +34,11 @@ def _load_model(model_id):
     return model
 
 # ── Hyperparameters (adjust as needed) ───────────────────────────────────────
-M = 10          # autocompletion length: number of tokens to generate per prefix
-C = 15          # considered length: number of prefix positions to iterate over
-JSONL_FILE = "autoconv3.jsonl"
+M = 40          # autocompletion length: number of tokens to generate per prefix
+C = 40          # considered length: number of prefix positions to iterate over
+JSONL_FILE = "autoconv4.jsonl"
 MODELS_FILE = "models.md"
-DATA_DIR = "data"
+DATA_DIR = "data-" + os.path.splitext(os.path.basename(JSONL_FILE))[0]
 
 
 def get_default_layer_indices(num_layers):
@@ -52,9 +52,9 @@ def load_models_list():
         return [line.strip() for line in f if line.strip()]
 
 
-def load_conversations():
+def load_conversations(jsonl_file=None):
     convos = []
-    with open(JSONL_FILE) as f:
+    with open(jsonl_file or JSONL_FILE) as f:
         for line in f:
             if not line.strip():
                 continue
@@ -272,12 +272,13 @@ def clone_kv_cache(cache, end_pos):
 # ── Core generation / activation-extraction logic ────────────────────────────
 
 def process_model(model_id, conversations, m, c, layer_indices,
-                  text_only=False, activation_only=False):
+                  text_only=False, activation_only=False, data_dir=None):
     """Run the full pipeline for one model: generate text and/or extract activations."""
 
+    data_dir = data_dir or DATA_DIR
     fname = model_id_to_filename(model_id)
-    json_path = os.path.join(DATA_DIR, f"{fname}.json")
-    pt_path = os.path.join(DATA_DIR, f"{fname}.pt")
+    json_path = os.path.join(data_dir, f"{fname}.json")
+    pt_path = os.path.join(data_dir, f"{fname}.pt")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     print(f"Loading tokenizer for {model_id} ...")
@@ -524,6 +525,10 @@ def _run_activation_only(model, tokenizer, saved_data, layer_indices,
 def main():
     parser = argparse.ArgumentParser(
         description="Generate autocompletion text and/or activations.")
+    parser.add_argument("--jsonl", type=str, default=None,
+                        help="JSONL conversations file (default: autoconv3.jsonl). "
+                             "DATA_DIR is derived as data-<stem>, e.g. "
+                             "autoconv4.jsonl -> data-autoconv4.")
     parser.add_argument("--model", type=str, default=None,
                         help="HuggingFace model ID. If omitted, run all models "
                              "from models.md.")
@@ -538,8 +543,11 @@ def main():
         print("Error: --textonly and --activationonly are mutually exclusive.")
         return
 
-    os.makedirs(DATA_DIR, exist_ok=True)
-    conversations = load_conversations()
+    jsonl_file = args.jsonl or JSONL_FILE
+    data_dir = "data-" + os.path.splitext(os.path.basename(jsonl_file))[0]
+
+    os.makedirs(data_dir, exist_ok=True)
+    conversations = load_conversations(jsonl_file)
     models = [args.model] if args.model else load_models_list()
 
     from transformers import AutoConfig
@@ -566,6 +574,7 @@ def main():
             model_id, conversations, M, C, layer_indices,
             text_only=args.textonly,
             activation_only=args.activationonly,
+            data_dir=data_dir,
         )
 
     print("\nDone.")
