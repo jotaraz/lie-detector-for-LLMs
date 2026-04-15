@@ -8,7 +8,8 @@ prefix length i, this script:
 
 Outputs are saved per model in the data/ subdirectory:
   - JSON file with text (continuous strings + token-by-token)
-  - PT file with activation tensor of shape (N, c, m, L, d)
+  - PT file with a dict: {"autocompletion_activations": (N, c, m, L, d),
+                          "full_convo_activations": (N, L, d)}
 """
 
 import argparse
@@ -105,6 +106,32 @@ def get_eos_token_ids(model, tokenizer):
     if tokenizer.eos_token_id is not None:
         eos_ids.add(tokenizer.eos_token_id)
     return eos_ids
+
+
+def get_end_turn_tokens(tokenizer):
+    """Determine the tokens the chat template appends after assistant content
+    to close the turn (e.g. <|eot_id|> for Llama).
+
+    Works by comparing the template with and without an assistant message."""
+    try:
+        msgs = [
+            {"role": "system", "content": "S"},
+            {"role": "user", "content": "U"},
+            {"role": "assistant", "content": "A"},
+        ]
+        full = tokenizer.apply_chat_template(msgs, add_generation_prompt=False)
+        gen = tokenizer.apply_chat_template(msgs[:2], add_generation_prompt=True)
+    except Exception:
+        msgs = [
+            {"role": "user", "content": "U"},
+            {"role": "assistant", "content": "A"},
+        ]
+        full = tokenizer.apply_chat_template(msgs, add_generation_prompt=False)
+        gen = tokenizer.apply_chat_template(msgs[:1], add_generation_prompt=True)
+
+    a_ids = tokenizer.encode("A", add_special_tokens=False)
+    end_tokens = full[len(gen) + len(a_ids):]
+    return end_tokens
 
 
 # ── Activation capture via forward hooks ─────────────────────────────────────
@@ -277,11 +304,15 @@ def process_model(model_id, conversations, m, c, layer_indices,
     capture_acts = not text_only
     capturer = ActivationCapturer(model, layer_indices) if capture_acts else None
 
+    # End-of-turn tokens appended after assistant content (e.g. <|eot_id|>)
+    end_turn_tokens = get_end_turn_tokens(tokenizer) if capture_acts else []
+
     N = len(conversations)
     d = _get_hidden_size(model)
     L = len(layer_indices)
     if capture_acts:
         all_acts = torch.zeros(N, c, m, L, d, dtype=torch.bfloat16)
+        full_convo_acts = torch.zeros(N, L, d, dtype=torch.bfloat16)
 
     json_data = {
         "model": model_id,
@@ -300,10 +331,12 @@ def process_model(model_id, conversations, m, c, layer_indices,
         n_k = len(ref_ids)
         c_k = min(c, n_k)
 
-        # ── Prefill: single forward pass over P + R ──────────────────────
+        # ── Prefill: single forward pass over P + R + end_turn_tokens ────
         # Thanks to causal attention, position p+i-1 in this pass gives us
         # the exact same hidden state / logits as if only P + R_i were fed.
-        full_ids = prompt_ids + ref_ids
+        # The end-of-turn tokens at the tail let us capture the full-convo
+        # activation from the last position at no extra cost.
+        full_ids = prompt_ids + ref_ids + end_turn_tokens
         input_tensor = torch.tensor([full_ids], device=device)
 
         if capturer is not None:
@@ -318,6 +351,9 @@ def process_model(model_id, conversations, m, c, layer_indices,
         if capturer is not None:
             prefill_acts = capturer.get_and_clear()   # {layer: (1, seq_len, d)}
             capturer.capture_all_positions = False
+            # Full-convo activation: last position (after R + end-of-turn tokens)
+            for l_idx, layer in enumerate(layer_indices):
+                full_convo_acts[k, l_idx] = prefill_acts[layer][0, -1]
 
         # ── Generate autocompletions for each prefix i ───────────────────
         conv_entry = {
@@ -402,7 +438,10 @@ def process_model(model_id, conversations, m, c, layer_indices,
     print(f"  Saved text  -> {json_path}")
 
     if capture_acts:
-        torch.save(all_acts, pt_path)
+        torch.save({
+            "autocompletion_activations": all_acts,
+            "full_convo_activations": full_convo_acts,
+        }, pt_path)
         print(f"  Saved acts  -> {pt_path}")
         capturer.remove()
 
@@ -416,6 +455,7 @@ def _run_activation_only(model, tokenizer, saved_data, layer_indices,
 
     For each (k, i), we forward P + R_i + AC_i in one pass and extract
     the activations at positions p+i-1 .. p+i+actual_len-2 (for j=0..actual_len-1).
+    Also extracts full-convo activations (after R + end-of-turn tokens).
     """
     m = saved_data["m"]
     c = saved_data["c"]
@@ -423,8 +463,11 @@ def _run_activation_only(model, tokenizer, saved_data, layer_indices,
     d = _get_hidden_size(model)
     L = len(layer_indices)
 
+    end_turn_tokens = get_end_turn_tokens(tokenizer)
+
     capturer = ActivationCapturer(model, layer_indices)
     all_acts = torch.zeros(N, c, m, L, d, dtype=torch.bfloat16)
+    full_convo_acts = torch.zeros(N, L, d, dtype=torch.bfloat16)
 
     for conv in saved_data["conversations"]:
         k = conv["k"]
@@ -436,6 +479,19 @@ def _run_activation_only(model, tokenizer, saved_data, layer_indices,
 
         print(f"  [{k+1}/{N}] Activations for conversation k={k} ...")
 
+        # ── Full-convo activation: P + R + end-of-turn tokens ────────────
+        fc_input = prompt_ids + ref_ids + end_turn_tokens
+        fc_tensor = torch.tensor([fc_input], device=device)
+        capturer.capture_all_positions = False  # only need last position
+        with torch.no_grad():
+            model(fc_tensor)
+        fc_acts = capturer.get_and_clear()
+        for l_idx, layer in enumerate(layer_indices):
+            full_convo_acts[k, l_idx] = fc_acts[layer][0, 0]
+        del fc_tensor
+        torch.cuda.empty_cache()
+
+        # ── Autocompletion activations ───────────────────────────────────
         for i in range(c_k):
             ac = conv["autocompletions"][i]
             ac_ids = [tid for tid in ac["token_ids"] if tid is not None]
@@ -455,7 +511,10 @@ def _run_activation_only(model, tokenizer, saved_data, layer_indices,
 
             torch.cuda.empty_cache()
 
-    torch.save(all_acts, pt_path)
+    torch.save({
+        "autocompletion_activations": all_acts,
+        "full_convo_activations": full_convo_acts,
+    }, pt_path)
     print(f"  Saved acts  -> {pt_path}")
     capturer.remove()
 

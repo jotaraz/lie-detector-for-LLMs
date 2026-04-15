@@ -114,9 +114,9 @@ def make_prefix_label(ref_tokens, i, c_k, k):
     return "".join(parts)
 
 
-def make_whole_convo_label(ref_tokens, c_k):
-    """Hover label for the 'whole convo' point."""
-    return "".join(_esc(t) for t in ref_tokens[:c_k])
+def make_full_convo_label(ref_tokens):
+    """Hover label for the 'full convo' point: show all reference tokens."""
+    return "".join(_esc(t) for t in ref_tokens)
 
 
 def make_autocomplete_label(ref_tokens, ac_tokens, i, j, k):
@@ -140,8 +140,12 @@ def make_autocomplete_label(ref_tokens, ac_tokens, i, j, k):
 
 # ── Build the data payload for the HTML ─────────────────────────────────────
 
-def build_vis_data(json_data, acts_tensor, layer_indices, methods):
-    """Return a JSON-serialisable dict consumed by the HTML/JS visualisation."""
+def build_vis_data(json_data, ac_tensor, fc_tensor, layer_indices, methods):
+    """Return a JSON-serialisable dict consumed by the HTML/JS visualisation.
+
+    ac_tensor: autocompletion activations, shape (N, c, m, L, d)
+    fc_tensor: full-convo activations, shape (N, L, d)
+    """
 
     N = len(json_data["conversations"])
     c = json_data["c"]
@@ -160,7 +164,7 @@ def build_vis_data(json_data, acts_tensor, layer_indices, methods):
         for i in range(c_k):
             prefix_labels.append(make_prefix_label(ref_tokens, i, c_k, k))
 
-        wc_label = make_whole_convo_label(ref_tokens, c_k)
+        fc_label = make_full_convo_label(ref_tokens)
 
         ac_labels = []  # [i][j]
         for ac in conv["autocompletions"]:
@@ -179,32 +183,42 @@ def build_vis_data(json_data, acts_tensor, layer_indices, methods):
             "c_k": c_k,
             "n_k": n_k,
             "prefix_labels": prefix_labels,
-            "whole_convo_label": wc_label,
+            "full_convo_label": fc_label,
             "ac_labels": ac_labels,
             "eos_positions": [ac.get("eos_position") for ac in conv["autocompletions"]],
         })
 
     # Projections per (layer, method) ────────────────────────────────────
     projections = {}
+    d = ac_tensor.shape[-1]
     for l_idx, layer in enumerate(layer_indices):
-        # Gather all activations for this layer: shape (N*c*m, d)
-        layer_acts = acts_tensor[:, :, :, l_idx, :].reshape(-1, acts_tensor.shape[-1])
-        layer_acts_np = layer_acts.float().numpy()
+        # Autocompletion activations: (N*c*m, d)
+        ac_flat = ac_tensor[:, :, :, l_idx, :].reshape(-1, d)
+        ac_flat_np = ac_flat.float().numpy()
+        n_ac = len(ac_flat_np)
 
-        # Valid mask: non-zero vectors
-        valid = np.any(layer_acts_np != 0, axis=1)
+        # Full-convo activations: (N, d)
+        fc_flat = fc_tensor[:, l_idx, :]
+        fc_flat_np = fc_flat.float().numpy()
+
+        # Combine for joint projection
+        all_acts_np = np.concatenate([ac_flat_np, fc_flat_np], axis=0)
+        valid = np.any(all_acts_np != 0, axis=1)
 
         if valid.sum() < 3:
             print(f"  [warn] Layer {layer}: fewer than 3 valid activations, skipping")
             continue
 
-        proj_results = project_all(layer_acts_np, valid, methods)
+        proj_results = project_all(all_acts_np, valid, methods)
 
         for method_name, coords in proj_results.items():
             key = f"layer{layer}_{method_name}"
-            # Reshape back to (N, c, m, 2)
-            coords_reshaped = coords.reshape(N, c, m, 2)
-            projections[key] = coords_reshaped.tolist()
+            # Split back: autocompletion coords → (N, c, m, 2)
+            ac_coords = coords[:n_ac].reshape(N, c, m, 2)
+            # Full-convo coords → (N, 2)
+            fc_coords = coords[n_ac:]
+            projections[key] = ac_coords.tolist()
+            projections[key + "_fc"] = fc_coords.tolist()
 
     return {
         "model": json_data["model"],
@@ -273,7 +287,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   <div class="group">
     <label>View:</label>
     <button id="btn-prefix" onclick="toggleView('prefix')">prefix</button>
-    <button id="btn-wc" onclick="toggleView('wholeConvo')">whole convo</button>
+    <button id="btn-fc" onclick="toggleView('fullConvo')">full convo</button>
     <button id="btn-ac" onclick="toggleAC()">autocomplete</button>
   </div>
   <div class="group" id="ac-buttons"></div>
@@ -291,7 +305,7 @@ const state = {
   method: DATA.methods[0],
   visibleK: new Set(Array.from({length: DATA.N}, (_, i) => i)),
   showPrefix: true,
-  showWholeConvo: false,
+  showFullConvo: false,
   autoI: new Set(),
 };
 
@@ -357,7 +371,7 @@ function toggleK(k) {
 }
 function toggleView(v) {
   if (v === "prefix") state.showPrefix = !state.showPrefix;
-  if (v === "wholeConvo") state.showWholeConvo = !state.showWholeConvo;
+  if (v === "fullConvo") state.showFullConvo = !state.showFullConvo;
   syncButtons(); render();
 }
 function toggleAC() {
@@ -377,8 +391,8 @@ function syncButtons() {
   }
   document.getElementById("btn-prefix").className =
       state.showPrefix ? "active" : "";
-  document.getElementById("btn-wc").className =
-      state.showWholeConvo ? "active" : "";
+  document.getElementById("btn-fc").className =
+      state.showFullConvo ? "active" : "";
   document.getElementById("btn-ac").className =
       state.autoI.size > 0 ? "active" : "";
   for (let i = 0; i < DATA.c; i++) {
@@ -391,6 +405,7 @@ function syncButtons() {
 function render() {
   const key = "layer" + DATA.layers[state.layerIdx] + "_" + state.method;
   const proj = DATA.projections[key];
+  const proj_fc = DATA.projections[key + "_fc"];
   if (!proj) { Plotly.purge("plot"); return; }
 
   const traces = [];
@@ -421,16 +436,15 @@ function render() {
       }
     }
 
-    // ── Whole-convo trace ──────────────────────────────────────────────
-    if (state.showWholeConvo && c_k > 0) {
-      const wci = c_k - 1;
-      const pt = proj[k][wci][0];  // prefix-activation at c_k-1
-      if (pt[0] !== null && !isNaN(pt[0])) {
+    // ── Full-convo trace ───────────────────────────────────────────────
+    if (state.showFullConvo && proj_fc) {
+      const pt = proj_fc[k];
+      if (pt && pt[0] !== null && !isNaN(pt[0])) {
         traces.push({
           x: [pt[0]], y: [pt[1]], mode: "markers",
           marker: { symbol: "square", size: 11, color: prefixColor(k),
                     line: { color: "#000", width: 1 } },
-          hovertext: [lab.whole_convo_label], hoverinfo: "text",
+          hovertext: [lab.full_convo_label], hoverinfo: "text",
           showlegend: false,
         });
       }
@@ -492,13 +506,15 @@ def process_model(model_id):
     print(f"Loading data for {model_id} ...")
     with open(json_path) as f:
         json_data = json.load(f)
-    acts = torch.load(pt_path, map_location="cpu", weights_only=True)
+    pt_data = torch.load(pt_path, map_location="cpu", weights_only=True)
+    ac_tensor = pt_data["autocompletion_activations"]
+    fc_tensor = pt_data["full_convo_activations"]
 
     layer_indices = json_data["layers"]
     methods = ["PCA", "UMAP", "Isomap"]
 
     print("  Computing projections ...")
-    vis_data = build_vis_data(json_data, acts, layer_indices, methods)
+    vis_data = build_vis_data(json_data, ac_tensor, fc_tensor, layer_indices, methods)
 
     print(f"  Writing {html_path} ...")
     generate_html(vis_data, html_path)

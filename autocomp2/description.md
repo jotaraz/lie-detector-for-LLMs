@@ -1,3 +1,5 @@
+CURRENT STATE:
+
 This is my notation.
 Tokens are strings.
 And every string consists of tokens, the number of tokens it contains is its length.
@@ -53,6 +55,11 @@ Everything should be done in the autocomp2 directory - the json, pt and html fil
 Use bfloat16 for all models. This script will be run on a GPU that can fit the 70B model - or at least the relevant layers.
 Since different models have different tokenizers, the tokenization (and also counting the length of strings) has to be done per model. $R^{(k)}$ should be tokenized in isolation (not jointly with $P^{(k)}$), even though this may introduce minor token boundary differences at the junction.
 Output files should be named by replacing '/' in the HuggingFace model ID with '--' (e.g., 'meta-llama--Llama-3.1-8B-Instruct.json').
+
+Everything above this has been implemented successfully. Please now consider this:
+NEW REQUEST:
+The pt files storing the activations, sofar only autocomplete activations, should now also store a second tensor. The pt files should use a dictionary structure, e.g., `{"autocompletion_activations": ..., "full_convo_activations": ...}`. This new tensor is similar to the activations currently known as the 'whole convo' activations, but they are different - and they are not currently extracted yet - so, this has to change. These activations, and the corresponding button (replacing the 'whole convo' button) are called 'full convo' and they are the activations after the model has read system prompt, user prompt and the whole prefixed answer, including whatever tokens the chat template appends after the assistant's content to close the turn (e.g., `<|eot_id|>` for Llama). Note that the 'whole convo' activations used $\text{prefix-activation}_{k,n^{(k)}-1} = y(P^{(k)} + R^{(k)}_{n^{(k)}-1})$, which is the activation at the second-to-last token of $R^{(k)}$. The 'full convo' activations go further: they include all of $R^{(k)}$ plus the end-of-turn tokens. So even without the end-of-turn tokens, 'full convo' and 'whole convo' would differ by one token. The 'full convo' activations have to be extracted for all conversations, independent of $c$. The 'full convo' activations are a $N \times L \times d$ tensor.
+In the visualization, the 'full convo' button (replacing 'whole convo') plots the full convo activation for each chosen conversation, marked by a square. When hovering over it, $R^{(k)}$ is shown as a label.
 
 %IGNORE THIS
 %Note to self: j=0 for autocompletion activation is the same as the prefix activations. And, j=0, i=n^{(k)} is the same as prefill activations in the previous
