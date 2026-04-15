@@ -255,7 +255,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   button.active { background: #4a90d9; color: #fff; border-color: #4a90d9; }
   button.active-red { background: #d94a4a; color: #fff; border-color: #d94a4a; }
   select { font-size: 0.78rem; padding: 2px 4px; }
-  #plot { width: 100%; height: calc(100vh - 140px); }
+  #plot { width: 100%; height: calc(100vh - 210px); }
 </style>
 </head>
 <body>
@@ -286,9 +286,24 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 <div class="controls">
   <div class="group">
     <label>View:</label>
-    <button id="btn-prefix" onclick="toggleView('prefix')">prefix</button>
+    <button id="btn-prefix" onclick="togglePrefix()">prefix</button>
     <button id="btn-fc" onclick="toggleView('fullConvo')">full convo</button>
     <button id="btn-ac" onclick="toggleAC()">autocomplete</button>
+  </div>
+</div>
+
+<!-- Row 4: prefix sub-buttons -->
+<div class="controls" id="prefix-bar" style="display:none">
+  <div class="group">
+    <label>Prefix i:</label>
+  </div>
+  <div class="group" id="prefix-buttons"></div>
+</div>
+
+<!-- Row 5: autocomplete sub-buttons -->
+<div class="controls" id="ac-bar" style="display:none">
+  <div class="group">
+    <label>AC i:</label>
   </div>
   <div class="group" id="ac-buttons"></div>
 </div>
@@ -304,7 +319,7 @@ const state = {
   layerIdx: 0,
   method: DATA.methods[0],
   visibleK: new Set(Array.from({length: DATA.N}, (_, i) => i)),
-  showPrefix: true,
+  prefixI: new Set(Array.from({length: DATA.c}, (_, i) => i)),
   showFullConvo: false,
   autoI: new Set(),
 };
@@ -343,6 +358,15 @@ function acColor(k)     { return k % 2 === 0 ? "#16a34a" : "#ea580c"; }
     cb.appendChild(b);
   }
 
+  const pb = document.getElementById("prefix-buttons");
+  for (let i = 0; i < DATA.c; i++) {
+    const b = document.createElement("button");
+    b.textContent = "i=" + i;
+    b.id = "btn-pi-" + i;
+    b.onclick = () => togglePrefixI(i);
+    pb.appendChild(b);
+  }
+
   const ab = document.getElementById("ac-buttons");
   for (let i = 0; i < DATA.c; i++) {
     const b = document.createElement("button");
@@ -370,8 +394,17 @@ function toggleK(k) {
   syncButtons(); render();
 }
 function toggleView(v) {
-  if (v === "prefix") state.showPrefix = !state.showPrefix;
   if (v === "fullConvo") state.showFullConvo = !state.showFullConvo;
+  syncButtons(); render();
+}
+function togglePrefix() {
+  if (state.prefixI.size > 0) state.prefixI.clear();
+  else for (let i = 0; i < DATA.c; i++) state.prefixI.add(i);
+  syncButtons(); render();
+}
+function togglePrefixI(i) {
+  if (state.prefixI.has(i)) state.prefixI.delete(i);
+  else state.prefixI.add(i);
   syncButtons(); render();
 }
 function toggleAC() {
@@ -390,11 +423,19 @@ function syncButtons() {
     b.className = state.visibleK.has(k) ? "active" : "";
   }
   document.getElementById("btn-prefix").className =
-      state.showPrefix ? "active" : "";
+      state.prefixI.size > 0 ? "active" : "";
   document.getElementById("btn-fc").className =
       state.showFullConvo ? "active" : "";
   document.getElementById("btn-ac").className =
       state.autoI.size > 0 ? "active" : "";
+  document.getElementById("prefix-bar").style.display =
+      state.prefixI.size > 0 ? "" : "none";
+  for (let i = 0; i < DATA.c; i++) {
+    const b = document.getElementById("btn-pi-" + i);
+    b.className = state.prefixI.has(i) ? "active" : "";
+  }
+  document.getElementById("ac-bar").style.display =
+      state.autoI.size > 0 ? "" : "none";
   for (let i = 0; i < DATA.c; i++) {
     const b = document.getElementById("btn-i-" + i);
     b.className = state.autoI.has(i) ? "active" : "";
@@ -414,20 +455,37 @@ function render() {
     const lab = DATA.labels[k];
     const c_k = lab.c_k;
 
-    // ── Prefix trace ───────────────────────────────────────────────────
-    if (state.showPrefix && c_k > 0) {
-      const xs = [], ys = [], texts = [], symbols = [], sizes = [];
+    // ── Prefix traces ──────────────────────────────────────────────────
+    // Build consecutive runs of enabled prefix indices, then emit one
+    // trace per run (so gaps between non-adjacent enabled i's have no line).
+    if (state.prefixI.size > 0 && c_k > 0) {
+      const enabled = [];
       for (let i = 0; i < c_k; i++) {
+        if (!state.prefixI.has(i)) continue;
         const pt = proj[k][i][0];  // j=0
         if (pt[0] === null || isNaN(pt[0])) continue;
-        xs.push(pt[0]); ys.push(pt[1]);
-        texts.push(lab.prefix_labels[i]);
-        symbols.push(i === 0 ? "star" : "circle");
-        sizes.push(i === 0 ? 12 : 8);
+        enabled.push(i);
       }
-      if (xs.length > 0) {
+      // Split into runs of consecutive indices
+      const runs = [];
+      for (let idx = 0; idx < enabled.length; idx++) {
+        if (idx === 0 || enabled[idx] !== enabled[idx - 1] + 1) {
+          runs.push([]);
+        }
+        runs[runs.length - 1].push(enabled[idx]);
+      }
+      for (const run of runs) {
+        const xs = [], ys = [], texts = [], symbols = [], sizes = [];
+        for (const i of run) {
+          const pt = proj[k][i][0];
+          xs.push(pt[0]); ys.push(pt[1]);
+          texts.push(lab.prefix_labels[i]);
+          symbols.push(i === 0 ? "star" : "circle");
+          sizes.push(i === 0 ? 12 : 8);
+        }
+        const mode = run.length > 1 ? "lines+markers" : "markers";
         traces.push({
-          x: xs, y: ys, mode: "lines+markers",
+          x: xs, y: ys, mode: mode,
           marker: { symbol: symbols, size: sizes, color: prefixColor(k) },
           line: { color: prefixColor(k), width: 1.5 },
           hovertext: texts, hoverinfo: "text",
