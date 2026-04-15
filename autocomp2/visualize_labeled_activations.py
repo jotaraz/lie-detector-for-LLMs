@@ -25,7 +25,7 @@ UMAP_MIN_DIST = 0.1       # UMAP: minimum distance between embedded points
 UMAP_METRIC = "euclidean"
 
 MODELS_FILE = "models.md"
-DEFAULT_JSONL = "autoconv3.jsonl"
+DEFAULT_JSONL = "autoconv5.jsonl"
 DATA_DIR = "data-" + os.path.splitext(os.path.basename(DEFAULT_JSONL))[0]
 
 
