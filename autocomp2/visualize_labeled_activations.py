@@ -296,6 +296,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 <div class="controls" id="prefix-bar" style="display:none">
   <div class="group">
     <label>Prefix i:</label>
+    <button onclick="showAllPrefixI()">show all</button>
+    <button onclick="hideAllPrefixI()">hide all</button>
   </div>
   <div class="group" id="prefix-buttons"></div>
 </div>
@@ -405,6 +407,14 @@ function togglePrefix() {
 function togglePrefixI(i) {
   if (state.prefixI.has(i)) state.prefixI.delete(i);
   else state.prefixI.add(i);
+  syncButtons(); render();
+}
+function showAllPrefixI() {
+  for (let i = 0; i < DATA.c; i++) state.prefixI.add(i);
+  syncButtons(); render();
+}
+function hideAllPrefixI() {
+  state.prefixI.clear();
   syncButtons(); render();
 }
 function toggleAC() {
