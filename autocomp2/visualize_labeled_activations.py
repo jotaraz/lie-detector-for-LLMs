@@ -293,7 +293,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 </div>
 
 <!-- Row 4: prefix sub-buttons -->
-<div class="controls" id="prefix-bar" style="display:none">
+<div class="controls" id="prefix-bar">
   <div class="group">
     <label>Prefix i:</label>
     <button onclick="showAllPrefixI()">show all</button>
@@ -303,7 +303,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
 </div>
 
 <!-- Row 5: autocomplete sub-buttons -->
-<div class="controls" id="ac-bar" style="display:none">
+<div class="controls" id="ac-bar">
   <div class="group">
     <label>AC i:</label>
     <button onclick="showAllACI()">show all</button>
@@ -448,14 +448,10 @@ function syncButtons() {
       state.showFullConvo ? "active" : "";
   document.getElementById("btn-ac").className =
       state.autoI.size > 0 ? "active" : "";
-  document.getElementById("prefix-bar").style.display =
-      state.prefixI.size > 0 ? "" : "none";
   for (let i = 0; i < DATA.c; i++) {
     const b = document.getElementById("btn-pi-" + i);
     b.className = state.prefixI.has(i) ? "active" : "";
   }
-  document.getElementById("ac-bar").style.display =
-      state.autoI.size > 0 ? "" : "none";
   for (let i = 0; i < DATA.c; i++) {
     const b = document.getElementById("btn-i-" + i);
     b.className = state.autoI.has(i) ? "active" : "";
