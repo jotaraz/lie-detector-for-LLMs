@@ -20,7 +20,7 @@ import json
 import sys
 from pathlib import Path
 
-DEFAULT_JSONL = "autoconv3.jsonl"
+DEFAULT_JSONL = "autoconv5.jsonl"
 DATA_DIR = Path("data-" + Path(DEFAULT_JSONL).stem)
 OUTPUT_FILE = Path(Path(DEFAULT_JSONL).stem + "_viz.html")
 
