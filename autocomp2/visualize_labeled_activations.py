@@ -120,6 +120,19 @@ def make_full_convo_label(ref_tokens):
     return "".join(_esc(t) for t in ref_tokens)
 
 
+def make_last_act_label(ref_tokens, c_k):
+    """Hover label for 'last act': show all reference tokens with the last
+    considered token (index c_k-1) underlined."""
+    parts = []
+    for idx, tok in enumerate(ref_tokens):
+        tok_esc = _esc(tok)
+        if idx == c_k - 1:
+            parts.append(f"<u>{tok_esc}</u>")
+        else:
+            parts.append(tok_esc)
+    return "".join(parts)
+
+
 def make_autocomplete_label(ref_tokens, ac_tokens, i, j, k):
     """Hover label for autocompletion-activation_{k,i,j}:
     R^{(k)}_i underlined, full AC shown, token ac_{i,j} bold."""
@@ -166,6 +179,7 @@ def build_vis_data(json_data, ac_tensor, fc_tensor, layer_indices, methods):
             prefix_labels.append(make_prefix_label(ref_tokens, i, c_k, k))
 
         fc_label = make_full_convo_label(ref_tokens)
+        last_act_label = make_last_act_label(ref_tokens, c_k) if c_k > 0 else ""
 
         ac_labels = []  # [i][j]
         for ac in conv["autocompletions"]:
@@ -185,6 +199,7 @@ def build_vis_data(json_data, ac_tensor, fc_tensor, layer_indices, methods):
             "n_k": n_k,
             "prefix_labels": prefix_labels,
             "full_convo_label": fc_label,
+            "last_act_label": last_act_label,
             "ac_labels": ac_labels,
             "eos_positions": [ac.get("eos_position") for ac in conv["autocompletions"]],
         })
@@ -289,6 +304,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     <label>View:</label>
     <button id="btn-prefix" onclick="togglePrefix()">prefix</button>
     <button id="btn-fc" onclick="toggleView('fullConvo')">full convo</button>
+    <button id="btn-lastact" onclick="toggleView('lastAct')">last act</button>
     <button id="btn-ac" onclick="toggleAC()">autocomplete</button>
   </div>
 </div>
@@ -326,6 +342,7 @@ const state = {
   visibleK: new Set(Array.from({length: DATA.N}, (_, i) => i)),
   prefixI: new Set(Array.from({length: DATA.c}, (_, i) => i)),
   showFullConvo: false,
+  showLastAct: false,
   autoI: new Set(),
 };
 
@@ -400,6 +417,7 @@ function toggleK(k) {
 }
 function toggleView(v) {
   if (v === "fullConvo") state.showFullConvo = !state.showFullConvo;
+  if (v === "lastAct")   state.showLastAct   = !state.showLastAct;
   syncButtons(); render();
 }
 function togglePrefix() {
@@ -447,6 +465,8 @@ function syncButtons() {
       state.prefixI.size > 0 ? "active" : "";
   document.getElementById("btn-fc").className =
       state.showFullConvo ? "active" : "";
+  document.getElementById("btn-lastact").className =
+      state.showLastAct ? "active" : "";
   document.getElementById("btn-ac").className =
       state.autoI.size > 0 ? "active" : "";
   for (let i = 0; i < DATA.c; i++) {
@@ -522,6 +542,23 @@ function render() {
           hovertext: [lab.full_convo_label], hoverinfo: "text",
           showlegend: false,
         });
+      }
+    }
+
+    // ── Last-act trace ─────────────────────────────────────────────────
+    if (state.showLastAct) {
+      const a = lab.c_k - 1;
+      if (a >= 0) {
+        const pt = proj[k][a][0];  // j=0
+        if (pt && pt[0] !== null && !isNaN(pt[0])) {
+          traces.push({
+            x: [pt[0]], y: [pt[1]], mode: "markers",
+            marker: { symbol: "x", size: 11, color: prefixColor(k),
+                      line: { color: "#000", width: 1 } },
+            hovertext: [lab.last_act_label], hoverinfo: "text",
+            showlegend: false,
+          });
+        }
       }
     }
 
