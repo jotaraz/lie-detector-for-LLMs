@@ -10,10 +10,11 @@ Usage:
 """
 
 import hashlib
+import time
 from pathlib import Path
 
 import fire
-from huggingface_hub import HfApi, create_repo
+from huggingface_hub import CommitOperationAdd, HfApi, create_repo
 
 # Set this to your HuggingFace repo (will be created if it doesn't exist)
 REPO_ID = "jo-chen/lie-detector-results"
@@ -82,15 +83,34 @@ def push(
 
     print(f"  {skipped} file(s) unchanged and skipped, {len(to_upload)} to upload.")
 
-    for i, file_path in enumerate(to_upload, 1):
-        size_mb = file_path.stat().st_size / 1e6
-        print(f"[{i}/{len(to_upload)}] Uploading {file_path} ({size_mb:.0f} MB)...")
-        api.upload_file(
-            path_or_fileobj=str(file_path),
-            path_in_repo=str(file_path),  # preserves results/experiment/file.json path
-            repo_id=repo_id,
-            repo_type="dataset",
-        )
+    batch_size = 20
+    batches = [to_upload[i:i + batch_size] for i in range(0, len(to_upload), batch_size)]
+    for b_idx, batch in enumerate(batches, 1):
+        total_mb = sum(f.stat().st_size for f in batch) / 1e6
+        paths = ", ".join(str(f.name) for f in batch[:3])
+        if len(batch) > 3:
+            paths += f" (+{len(batch) - 3} more)"
+        print(f"[batch {b_idx}/{len(batches)}] {len(batch)} files ({total_mb:.0f} MB): {paths}")
+        operations = [
+            CommitOperationAdd(path_in_repo=str(f), path_or_fileobj=str(f))
+            for f in batch
+        ]
+        for attempt in range(5):
+            try:
+                api.create_commit(
+                    repo_id=repo_id,
+                    repo_type="dataset",
+                    operations=operations,
+                    commit_message=f"Upload batch {b_idx}/{len(batches)}",
+                )
+                break
+            except Exception as e:
+                if "429" in str(e) and attempt < 4:
+                    wait = 60 * (attempt + 1)
+                    print(f"  Rate limited, waiting {wait}s...")
+                    time.sleep(wait)
+                else:
+                    raise
 
     print(f"\nDone. Uploaded {len(to_upload)} file(s) to {repo_id}")
 
