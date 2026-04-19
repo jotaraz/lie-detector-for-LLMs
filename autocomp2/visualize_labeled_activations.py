@@ -11,8 +11,12 @@ import argparse
 import html as html_lib
 import json
 import os
+import warnings
 import numpy as np
 import torch
+from scipy.sparse import SparseEfficiencyWarning
+
+warnings.filterwarnings("ignore", category=SparseEfficiencyWarning)
 
 from sklearn.decomposition import PCA
 from sklearn.manifold import Isomap
@@ -25,7 +29,7 @@ UMAP_MIN_DIST = 0.1       # UMAP: minimum distance between embedded points
 UMAP_METRIC = "euclidean"
 
 MODELS_FILE = "models.md"
-DEFAULT_JSONL = "autoconv5.jsonl"
+DEFAULT_JSONL = "autoconv6.jsonl"
 DATA_DIR = "data-" + os.path.splitext(os.path.basename(DEFAULT_JSONL))[0]
 
 
