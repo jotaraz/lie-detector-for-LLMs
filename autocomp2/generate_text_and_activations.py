@@ -34,7 +34,7 @@ def _load_model(model_id):
     return model
 
 # ── Hyperparameters (adjust as needed) ───────────────────────────────────────
-M = 60          # autocompletion length: number of tokens to generate per prefix
+M = 150          # autocompletion length: number of tokens to generate per prefix
 C = 5          # considered length: number of prefix positions to iterate over
 JSONL_FILE = "autoconv7.jsonl"
 MODELS_FILE = "models.md"
