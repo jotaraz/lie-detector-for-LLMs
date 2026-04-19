@@ -22,7 +22,7 @@ def _load_model(model_id):
     """Load a model, trying AutoModelForCausalLM first, then falling back to
     AutoModelForConditionalGeneration for multimodal models (Gemma 3/4,
     Mistral Small 3.1, etc.)."""
-    kwargs = dict(torch_dtype=torch.bfloat16, device_map="auto",
+    kwargs = dict(dtype=torch.bfloat16, device_map="auto",
                   trust_remote_code=True)
     try:
         model = AutoModelForCausalLM.from_pretrained(model_id, **kwargs)
@@ -34,9 +34,9 @@ def _load_model(model_id):
     return model
 
 # ── Hyperparameters (adjust as needed) ───────────────────────────────────────
-M = 30          # autocompletion length: number of tokens to generate per prefix
-C = 30          # considered length: number of prefix positions to iterate over
-JSONL_FILE = "autoconv6.jsonl"
+M = 60          # autocompletion length: number of tokens to generate per prefix
+C = 5          # considered length: number of prefix positions to iterate over
+JSONL_FILE = "autoconv7.jsonl"
 MODELS_FILE = "models.md"
 DATA_DIR = "data-" + os.path.splitext(os.path.basename(JSONL_FILE))[0]
 
@@ -71,6 +71,18 @@ def model_id_to_filename(model_id):
     return model_id.replace("/", "--")
 
 
+def _apply_chat_template(tokenizer, messages, **kwargs):
+    """Wrapper for apply_chat_template that always returns a flat list of ints.
+    Handles transformers >= 5.x where the return type changed to BatchEncoding."""
+    result = tokenizer.apply_chat_template(messages, **kwargs)
+    if isinstance(result, list):
+        return result
+    if hasattr(result, 'input_ids'):
+        ids = result['input_ids']
+        return ids if isinstance(ids, list) else list(ids)
+    return list(result)
+
+
 def format_prompt(tokenizer, system_prompt, user_prompt):
     """Build the formatted prompt P^{(k)} using the model's chat template.
 
@@ -82,15 +94,13 @@ def format_prompt(tokenizer, system_prompt, user_prompt):
         {"role": "user", "content": user_prompt},
     ]
     try:
-        ids = tokenizer.apply_chat_template(messages, add_generation_prompt=True)
-        return ids
+        return _apply_chat_template(tokenizer, messages, add_generation_prompt=True)
     except Exception:
         pass
 
     combined = f"{system_prompt}\n\n{user_prompt}"
     messages = [{"role": "user", "content": combined}]
-    ids = tokenizer.apply_chat_template(messages, add_generation_prompt=True)
-    return ids
+    return _apply_chat_template(tokenizer, messages, add_generation_prompt=True)
 
 
 def get_eos_token_ids(model, tokenizer):
@@ -119,15 +129,15 @@ def get_end_turn_tokens(tokenizer):
             {"role": "user", "content": "U"},
             {"role": "assistant", "content": "A"},
         ]
-        full = tokenizer.apply_chat_template(msgs, add_generation_prompt=False)
-        gen = tokenizer.apply_chat_template(msgs[:2], add_generation_prompt=True)
+        full = _apply_chat_template(tokenizer, msgs, add_generation_prompt=False)
+        gen = _apply_chat_template(tokenizer, msgs[:2], add_generation_prompt=True)
     except Exception:
         msgs = [
             {"role": "user", "content": "U"},
             {"role": "assistant", "content": "A"},
         ]
-        full = tokenizer.apply_chat_template(msgs, add_generation_prompt=False)
-        gen = tokenizer.apply_chat_template(msgs[:1], add_generation_prompt=True)
+        full = _apply_chat_template(tokenizer, msgs, add_generation_prompt=False)
+        gen = _apply_chat_template(tokenizer, msgs[:1], add_generation_prompt=True)
 
     a_ids = tokenizer.encode("A", add_special_tokens=False)
     end_tokens = full[len(gen) + len(a_ids):]
@@ -247,6 +257,17 @@ def clone_kv_cache(cache, end_pos):
             (k[:, :, :end_pos, :].clone(), v[:, :, :end_pos, :].clone())
             for k, v in cache
         )
+
+    # ── DynamicCache with .layers list (transformers ≥5.x) ──────────────
+    if hasattr(cache, "layers"):
+        new = DynamicCache()
+        for layer_idx, layer in enumerate(cache.layers):
+            if not layer.is_initialized or layer.keys.numel() == 0:
+                continue
+            k = layer.keys[:, :, :end_pos, :].clone()
+            v = layer.values[:, :, :end_pos, :].clone()
+            new.update(k, v, layer_idx)
+        return new
 
     # ── DynamicCache with key_cache / value_cache lists (transformers ≥4.38)
     if hasattr(cache, "key_cache"):
