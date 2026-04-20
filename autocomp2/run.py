@@ -10,4 +10,7 @@ models = [
 import os
 
 for model in models:
-	os.system(f"/home/ubuntu/lie-detector-for-LLMs/.venv/bin/python generate_text_and_activations.py --model {model}")
+	os.system(f"/home/ubuntu/lie-detector-for-LLMs/.venv/bin/python generate_text_and_activations.py --model {model} --jsonl autoconv8.jsonl")
+
+for model in models:
+	os.system(f"/home/ubuntu/lie-detector-for-LLMs/.venv/bin/python generate_text_and_activations.py --model {model} --jsonl autoconv9.jsonl")
