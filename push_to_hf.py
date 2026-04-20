@@ -27,6 +27,10 @@ LARGE_FILE_SPECS = [
     ("autocomp2/data-autoconv3", "*.pt"),
     ("autocomp2/data-autoconv4", "*.pt"),
     ("autocomp2/data-autoconv5", "*.pt"),
+    ("autocomp2/data-autoconv6", "*.pt"),
+    ("autocomp2/data-autoconv7", "*.pt"),
+    ("autocomp2/data-autoconv8", "*.pt"),
+    ("autocomp2/data-autoconv9", "*.pt"),
 ]
 
 
