@@ -13,6 +13,8 @@ DATASET_PATHS_FILE = REPO_ROOT / "dataset_paths.json"
 # Each model and the eval datasets it needs rollouts for
 # Only include datasets that are actually in eval_data configs
 ROLLOUT_JOBS = [
+    ("qwen-72b",    "roleplaying__plain"),
+    ("qwen-72b",    "insider_trading__upscale"),
     ("qwen-32b",    "roleplaying__plain"),
     ("qwen-32b",    "insider_trading__upscale"),
     ("gemma3-12b",  "roleplaying__plain"),

@@ -64,12 +64,10 @@ models = [probe+LLM for probe in probe_types for LLM in LLMs]
 models = ["repe_llama-3.1-70b-base_layer20"]
 
 models = (
-    # llama-8b: all 24 layers except existing 8, 16, 24
-    [f"repe_llama-8b_layer{i}.yaml" for i in range(1, 25) if i not in (8, 16, 24)]
-    # gemma-9b: all 31 layers except existing 10, 21, 31
-    + [f"repe_gemma-9b_layer{i}.yaml" for i in range(1, 32) if i not in (10, 21, 31)]
-    # qwen-32b: all 48 layers except existing 16, 32, 48
-    + [f"repe_qwen-32b_layer{i}.yaml" for i in range(1, 49) if i not in (16, 32, 48)]
+    # qwen-72b with system prompt: all 80 layers
+    [f"repe_qwen-72b_layer{i}.yaml" for i in range(1, 81)]
+    # qwen-72b plain (no system prompt): all 80 layers
+    + [f"repe_qwen-72b_plain_layer{i}.yaml" for i in range(1, 81)]
 )
 
 print(models)

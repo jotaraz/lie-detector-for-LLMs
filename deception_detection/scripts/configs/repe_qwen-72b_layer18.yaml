@@ -1,0 +1,16 @@
+method: "lr"
+model_name: "qwen-72b"
+train_data: "repe_honesty__plain_with_sys"
+eval_data:
+  - "roleplaying__plain"
+  - "insider_trading__upscale"
+eval_on_policy: true
+control_data:
+  - "alpaca__plain"
+id: "repe"
+detect_only_start_of_turn: false
+val_fraction: 0.2
+control_on_policy: false
+control_dataset_size: 10000
+detect_layers: [18]
+reg_coeff: 10
