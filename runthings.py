@@ -63,48 +63,14 @@ models = [probe+LLM for probe in probe_types for LLM in LLMs]
 
 models = ["repe_llama-3.1-70b-base_layer20"]
 
-models = [
-    # "repe_llama-8b_layer8_reg0p1.yaml",
-    # "repe_llama-8b_layer8_reg1.yaml",
-    # "repe_llama-8b_layer8_reg3.yaml",
-    # "repe_llama-8b_layer8_reg30.yaml",
-    # "repe_llama-8b_layer8_reg100.yaml",
-    # "repe_llama-8b_layer16_reg0p1.yaml",
-    # "repe_llama-8b_layer16_reg1.yaml",
-    # "repe_llama-8b_layer16_reg3.yaml",
-    # "repe_llama-8b_layer16_reg30.yaml",
-    # "repe_llama-8b_layer16_reg100.yaml",
-    # "repe_gemma-9b_layer10_reg0p1.yaml",
-    # "repe_gemma-9b_layer10_reg1.yaml",
-    # "repe_gemma-9b_layer10_reg3.yaml",
-    # "repe_gemma-9b_layer10_reg30.yaml",
-    # "repe_gemma-9b_layer10_reg100.yaml",
-    # "repe_gemma-9b_layer21_reg0p1.yaml",
-    # "repe_gemma-9b_layer21_reg1.yaml",
-    # "repe_gemma-9b_layer21_reg3.yaml",
-    # "repe_gemma-9b_layer21_reg30.yaml",
-    # "repe_gemma-9b_layer21_reg100.yaml",
-    "repe_gemma3-12b_layer12_reg0p1.yaml",
-    "repe_gemma3-12b_layer12_reg1.yaml",
-    "repe_gemma3-12b_layer12_reg3.yaml",
-    "repe_gemma3-12b_layer12_reg30.yaml",
-    "repe_gemma3-12b_layer12_reg100.yaml",
-    "repe_gemma3-12b_layer24_reg0p1.yaml",
-    "repe_gemma3-12b_layer24_reg1.yaml",
-    "repe_gemma3-12b_layer24_reg3.yaml",
-    "repe_gemma3-12b_layer24_reg30.yaml",
-    "repe_gemma3-12b_layer24_reg100.yaml",
-    "repe_qwen-32b_layer16_reg0p1.yaml",
-    "repe_qwen-32b_layer16_reg1.yaml",
-    "repe_qwen-32b_layer16_reg3.yaml",
-    "repe_qwen-32b_layer16_reg30.yaml",
-    "repe_qwen-32b_layer16_reg100.yaml",
-    "repe_qwen-32b_layer32_reg0p1.yaml",
-    "repe_qwen-32b_layer32_reg1.yaml",
-    "repe_qwen-32b_layer32_reg3.yaml",
-    "repe_qwen-32b_layer32_reg30.yaml",
-    "repe_qwen-32b_layer32_reg100.yaml",
-    ]
+models = (
+    # llama-8b: all 24 layers except existing 8, 16, 24
+    [f"repe_llama-8b_layer{i}.yaml" for i in range(1, 25) if i not in (8, 16, 24)]
+    # gemma-9b: all 31 layers except existing 10, 21, 31
+    + [f"repe_gemma-9b_layer{i}.yaml" for i in range(1, 32) if i not in (10, 21, 31)]
+    # qwen-32b: all 48 layers except existing 16, 32, 48
+    + [f"repe_qwen-32b_layer{i}.yaml" for i in range(1, 49) if i not in (16, 32, 48)]
+)
 
 print(models)
 
