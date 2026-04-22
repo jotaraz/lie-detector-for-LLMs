@@ -1,0 +1,41 @@
+activation_batch_size: 4
+control_data:
+- alpaca__plain
+control_dataset_size: 10000
+control_on_policy: false
+cut_at_layer: null
+detect_layers:
+- 19
+detect_num_latents: null
+detect_only_last_token: false
+detect_only_start_of_turn: false
+eval_data:
+- roleplaying__plain
+- insider_trading__upscale
+eval_on_policy: true
+id: repe
+lora_path: null
+max_llama_token_length: null
+method: lr
+model_name: qwen-32b
+normalize_acts: true
+probe_alpha: 0.5
+probe_architecture: null
+probe_epochs: 1000
+probe_hidden_dim: 100
+probe_lr: 0.001
+probe_mlp_depth: 2
+probe_n_heads: 10
+probe_window_size: 10
+pw_locked: false
+reg_coeff: 10.0
+sae_latent_whitelist: null
+shard_size: null
+timestamp: '20260422_031710'
+train_data: repe_honesty__plain_with_sys
+train_on_policy: false
+trim_reasoning: true
+use_followup_question: false
+use_goodfire_sae_acts: false
+use_local_sae_acts: false
+val_fraction: 0.2

@@ -143,7 +143,7 @@ def fmt_cell(value: tuple[float, float | None] | None) -> str:
     return f"{auroc:.4f} ({recall_str})"
 
 
-def print_model_table(model: str, rows: list[dict], all_datasets: list[str]) -> None:
+def print_model_table(model: str, rows: list[dict], all_datasets: list[str], show_train: bool = False) -> None:
     col_type  = max(len("type"),       max(len(r["probe_type"]) for r in rows))
     col_probe = max(len("probe"),      max(len(r["probe"])      for r in rows))
     col_layers = max(len("layers"),    max(len(r["layers"])     for r in rows))
@@ -155,8 +155,8 @@ def print_model_table(model: str, rows: list[dict], all_datasets: list[str]) -> 
         f"{'type':<{col_type}}  "
         f"{'probe':<{col_probe}}  "
         f"{'layers':<{col_layers}}  "
-        f"{'train_data':<{col_train}}  "
-        f"{'dir':<{col_dir}}  "
+        + (f"{'train_data':<{col_train}}  " if show_train else "")
+        + f"{'dir':<{col_dir}}  "
         + "  ".join(f"{ds:<{col_ds}}" for ds in all_datasets)
     )
     sep = "-" * len(header)
@@ -167,13 +167,19 @@ def print_model_table(model: str, rows: list[dict], all_datasets: list[str]) -> 
     print(header)
     print(sep)
 
-    for r in sorted(rows, key=lambda x: (x["probe_type"], x["probe"], x["train_data"], x["layers"])):
+    def _sort_key(r):
+        raw = r["raw_layers"]
+        # single-layer probes come after multi-layer ones (0 = multi, 1 = single)
+        is_single = 1 if len(raw) == 1 else 0
+        return (is_single, r["probe_type"], r["probe"], r["train_data"], tuple(raw))
+
+    for r in sorted(rows, key=_sort_key):
         line = (
             f"{r['probe_type']:<{col_type}}  "
             f"{r['probe']:<{col_probe}}  "
             f"{r['layers']:<{col_layers}}  "
-            f"{r['train_data']:<{col_train}}  "
-            f"{r['dir']:<{col_dir}}  "
+            + (f"{r['train_data']:<{col_train}}  " if show_train else "")
+            + f"{r['dir']:<{col_dir}}  "
             + "  ".join(
                 f"{fmt_cell(r['aurocs'].get(ds)):<{col_ds}}"
                 for ds in all_datasets
@@ -186,6 +192,7 @@ def print_model_table(model: str, rows: list[dict], all_datasets: list[str]) -> 
 
 def main() -> None:
     only_complete = "--onlycomplete" in sys.argv
+    show_train    = "--show-training-data" in sys.argv
     # Collect data keyed by model name
     model_data: dict[str, list[dict]] = defaultdict(list)
     model_datasets: dict[str, set[str]] = defaultdict(set)
@@ -203,7 +210,8 @@ def main() -> None:
             continue
 
         probe_type, probe = probe_label(cfg)
-        layers = fmt_layers(cfg.get("detect_layers"))
+        raw_layers = cfg.get("detect_layers") or []
+        layers = fmt_layers(raw_layers)
         train  = cfg.get("train_data", "?")
         aurocs = {
             ds: v
@@ -215,6 +223,7 @@ def main() -> None:
             "probe_type": probe_type,
             "probe":      probe,
             "layers":     layers,
+            "raw_layers": raw_layers,
             "train_data": train,
             "aurocs":     aurocs,
             "dir":        exp_dir.name,
@@ -239,7 +248,7 @@ def main() -> None:
             rows = [r for r in rows if full_set.issubset(r["aurocs"].keys())]
             if not rows:
                 continue
-        print_model_table(model, rows, datasets)
+        print_model_table(model, rows, datasets, show_train=show_train)
 
     print()
 
