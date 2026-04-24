@@ -190,6 +190,9 @@ def roleplaying_violin(
 ):
     """Violin plot of roleplaying scores by deceptive grade, with alpaca scores as control"""
     df = get_dataframe_of_scores_on_dataset(exp, "roleplaying__plain", scorer=scorer)
+    if df.empty:
+        logger.warning("roleplaying__plain has no scored samples, skipping violin plot")
+        return
     # Drop rows where the grade is not a valid integer (e.g. 'unknown' from failed graders)
     numeric_grade = pd.to_numeric(df["model_graded_deception"], errors="coerce")
     df = df[numeric_grade.notna()].copy()
@@ -219,6 +222,10 @@ def roleplaying_violin(
     # compute auroc reclassifying ambiguous
     honest_scores = df[df["model_graded_deception"] <= 4]["score"]
     deceptive_scores = df[df["model_graded_deception"] > 4]["score"]
+    if len(honest_scores) == 0 or len(deceptive_scores) == 0:
+        logger.warning("roleplaying__plain has empty honest or deceptive scores, skipping AUROC")
+        save_plot_exp(exp, f"roleplaying_{scorer.method}.png", outfile)
+        return
     auroc = get_auroc(honest_scores, deceptive_scores)  # type: ignore
     print(f"AUROC reclassifying ambiguous: {auroc:.3f}")
     threshold = np.quantile(control_df["score"], 0.99)  # type: ignore
@@ -312,6 +319,10 @@ def plot_roc_curve_with_auroc(
 
         split_scores = scores.get_scores_by_label()
         deceptive = scorer.process(split_scores[Label.DECEPTIVE])
+
+        if len(split_scores[Label.DECEPTIVE]) == 0:
+            logger.warning(f"no deceptive scores for {dataset_name}, skipping")
+            continue
 
         if compare_to == "honest":
             if len(split_scores[Label.HONEST]) == 0:

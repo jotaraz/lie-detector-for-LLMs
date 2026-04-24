@@ -64,10 +64,9 @@ models = [probe+LLM for probe in probe_types for LLM in LLMs]
 models = ["repe_llama-3.1-70b-base_layer20"]
 
 models = (
-    # qwen-72b with system prompt: all 80 layers
-    [f"repe_qwen-72b_layer{i}.yaml" for i in range(1, 81)]
     # qwen-72b plain (no system prompt): all 80 layers
-    + [f"repe_qwen-72b_plain_layer{i}.yaml" for i in range(1, 81)]
+    # sys-prompt layers 1-80 already completed in previous run
+    [f"repe_qwen-72b_plain_layer{i}.yaml" for i in range(1, 81)]
 )
 
 print(models)

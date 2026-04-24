@@ -249,6 +249,24 @@ class TokenizedDataset:
         # qwen and llama support system prompts natively
         fold_system = tokenizer_type in ["gemma", "mistral"]
         processed = [preprocess_dialogue(d, fold_system=fold_system) for d in dialogues]
+
+        # Qwen's chat template adds a default system prompt when none is present, which breaks
+        # character-position tracking in _get_detection_mask. Fix: inject an empty system message
+        # into both processed and dialogues so positions stay in sync.
+        if tokenizer_type == "qwen" and any(
+            not p or p[0]["role"] != "system" for p in processed
+        ):
+            new_processed = []
+            new_dialogues = []
+            for d, p in zip(dialogues, processed):
+                if not p or p[0]["role"] != "system":
+                    new_processed.append([{"role": "system", "content": ""}] + p)
+                    new_dialogues.append([Message("system", "", False)] + list(d))
+                else:
+                    new_processed.append(p)
+                    new_dialogues.append(list(d))
+            processed = new_processed
+            dialogues = new_dialogues
         final_assistants = [cls._final_message_is_assistant(d) for d in dialogues]
         assert all(final_assistants[0] == fa for fa in final_assistants)
         final_assistant = final_assistants[0]
