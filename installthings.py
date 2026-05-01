@@ -28,10 +28,14 @@ VENV_DIR = os.path.join(PROJECT_DIR, ".venv")
 
 def find_python() -> str | None:
     """Return path to a Python >= 3.11 with working lzma, or None."""
+    import glob
+    uv_pythons = sorted(glob.glob(
+        os.path.expanduser("~/.local/share/uv/python/cpython-3.1[1-9]*-linux-x86_64-gnu/bin/python3.*")
+    ), reverse=True)
     candidates = [sys.executable] + [
         shutil.which(name) or ""
         for name in ["python3.13", "python3.12", "python3.11"]
-    ] + [
+    ] + uv_pythons + [
         "/opt/az/bin/python3.13",
         "/home/ubuntu/.local/share/uv/python/cpython-3.11-linux-aarch64-gnu/bin/python3.11",
     ]
@@ -59,9 +63,25 @@ def find_python() -> str | None:
 
 
 def install_python_via_apt() -> None:
-    """Install python3.12 + python3.12-full via apt."""
-    print("[installthings] No suitable Python found. Installing python3.12 via apt...")
-    print("[installthings] Running apt-get update first...")
+    """Install python3.12 via uv (preferred) or apt as fallback."""
+    print("[installthings] No suitable Python found. Installing python3.12...")
+
+    # uv can download standalone CPython builds without needing a PPA
+    uv = find_uv()
+    if not uv:
+        print("[installthings] Installing uv to bootstrap Python install...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "uv"])
+        uv = find_uv()
+
+    if uv:
+        print("[installthings] Installing python3.12 via uv python install...")
+        try:
+            subprocess.check_call([uv, "python", "install", "3.12"])
+            return
+        except subprocess.CalledProcessError:
+            print("[installthings] uv python install failed, falling back to apt...")
+
+    print("[installthings] Falling back to apt. Running apt-get update first...")
     subprocess.check_call(["sudo", "apt-get", "update", "-y"])
     subprocess.check_call([
         "sudo", "apt-get", "install", "-y",

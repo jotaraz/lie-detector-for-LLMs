@@ -29,11 +29,11 @@ RESULTS_DIR = Path(__file__).parent / "results"
 
 RELEVANT_MODELS = [
     #"llama-8b",
-    #"llama-70b-3.3",
+    "llama-70b-3.3",
     #"llama-70b",
     #"gemma-9b",
     #"gemma3-12b",
-    #"qwen-32b",
+    "qwen-32b",
     "qwen-72b",
 ]
 
