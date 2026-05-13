@@ -35,10 +35,10 @@ def _load_model(model_id):
 
 # ── Hyperparameters (adjust as needed) ───────────────────────────────────────
 M = 100          # autocompletion length: number of tokens to generate per prefix
-C = 2          # considered length: number of prefix positions to iterate over
-JSONL_FILE = "autoconv7.jsonl"
+C = 1          # considered length: number of prefix positions to iterate over
+JSONL_FILE = "more-roleplay.jsonl"
 MODELS_FILE = "models.md"
-DATA_DIR = "data-" + os.path.splitext(os.path.basename(JSONL_FILE))[0]
+DATA_DIR = "data-autconv11" # + os.path.splitext(os.path.basename(JSONL_FILE))[0]
 
 
 def get_default_layer_indices(num_layers):
@@ -351,7 +351,7 @@ def process_model(model_id, conversations, m, c, layer_indices,
         ref_ids = tokenizer.encode(conv["reference"], add_special_tokens=False)
         p = len(prompt_ids)
         n_k = len(ref_ids)
-        c_k = min(c, n_k)
+        c_k = min(c, max(n_k, 1))
 
         # ── Prefill: single forward pass over P + R + end_turn_tokens ────
         # Thanks to causal attention, position p+i-1 in this pass gives us
@@ -497,7 +497,7 @@ def _run_activation_only(model, tokenizer, saved_data, layer_indices,
         ref_ids = conv["reference_token_ids"]
         p = len(prompt_ids)
         n_k = conv["n"]
-        c_k = min(c, n_k)
+        c_k = min(c, max(n_k, 1))
 
         print(f"  [{k+1}/{N}] Activations for conversation k={k} ...")
 
