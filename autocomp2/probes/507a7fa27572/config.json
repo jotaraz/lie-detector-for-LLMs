@@ -1,0 +1,36 @@
+{
+  "cfg_hash": "507a7fa27572",
+  "cfg": {
+    "model": "google/gemma-2-9b-it",
+    "layer": 15,
+    "datasets": "more-roleplay",
+    "judge": "gpt-5.4-nano",
+    "cat_to_label": [
+      [
+        -2,
+        -1
+      ],
+      [
+        2,
+        1
+      ]
+    ],
+    "jmin": 0,
+    "jmax": 10,
+    "probe_kind": "lr",
+    "reg_coeff": 100.0,
+    "normalize": true,
+    "fit_intercept": false,
+    "test_fraction": 0.1,
+    "random_seed": 42
+  },
+  "data_dirs": [
+    "./data-more-roleplay"
+  ],
+  "n_train_convs": 741,
+  "n_test_convs": 83,
+  "classes": [
+    -1,
+    1
+  ]
+}
