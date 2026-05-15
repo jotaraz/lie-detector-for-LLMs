@@ -45,6 +45,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -175,37 +176,74 @@ def main() -> None:
     if args.rejudge_input is not None and len(models) > 1:
         sys.exit("error: --rejudge-input is only valid with a single --models entry.")
 
-    for model_id in models:
-        print(f"\n=== {model_id} ===")
-        if args.phase in ("all", "generate"):
-            generate_for_model(
-                model_id=model_id,
-                n=args.n,
-                output_dir=output_dir,
-                variant=args.variant,
-                grader_model=args.grader_model,
-                tensor_parallel_size=args.tensor_parallel_size,
-                gpu_memory_utilization=args.gpu_memory_utilization,
-                max_model_len=args.max_model_len,
-                max_connections=args.max_connections,
-                temperature=args.temperature,
-                max_tokens=args.max_tokens,
-            )
-        if args.phase in ("all", "extract"):
-            extract_for_model(
-                model_id=model_id,
-                output_dir=output_dir,
-                max_layer=args.max_layer,
-                limit=args.extract_limit,
-            )
-        if args.phase == "rejudge":
-            rejudge_for_model(
-                model_id=model_id,
-                output_dir=output_dir,
-                grader_model=args.grader_model,
-                input_path=Path(args.rejudge_input) if args.rejudge_input else None,
-                max_concurrency=args.rejudge_concurrency,
-            )
+    phases = ["generate", "extract"] if args.phase == "all" else [args.phase]
+
+    # Each (model, phase) is run in its own subprocess. vLLM's EngineCore stays
+    # alive for the lifetime of the Python process that started it; running each
+    # unit of work in a fresh process is the simplest way to guarantee GPU
+    # memory is freed between the gen phase (vLLM) and the extract phase
+    # (transformers), and between models.
+    if len(models) * len(phases) > 1:
+        for model_id in models:
+            for phase in phases:
+                _spawn_subprocess(model_id, phase)
+        return
+
+    # Single (model, phase) — in-process.
+    model_id, phase = models[0], phases[0]
+    print(f"\n=== {model_id} ({phase}) ===")
+    if phase == "generate":
+        generate_for_model(
+            model_id=model_id,
+            n=args.n,
+            output_dir=output_dir,
+            variant=args.variant,
+            grader_model=args.grader_model,
+            tensor_parallel_size=args.tensor_parallel_size,
+            gpu_memory_utilization=args.gpu_memory_utilization,
+            max_model_len=args.max_model_len,
+            max_connections=args.max_connections,
+            temperature=args.temperature,
+            max_tokens=args.max_tokens,
+        )
+    elif phase == "extract":
+        extract_for_model(
+            model_id=model_id,
+            output_dir=output_dir,
+            max_layer=args.max_layer,
+            limit=args.extract_limit,
+        )
+    elif phase == "rejudge":
+        rejudge_for_model(
+            model_id=model_id,
+            output_dir=output_dir,
+            grader_model=args.grader_model,
+            input_path=Path(args.rejudge_input) if args.rejudge_input else None,
+            max_concurrency=args.rejudge_concurrency,
+        )
+
+
+def _spawn_subprocess(model_id: str, phase: str) -> None:
+    """Re-invoke this script with --models <single> --phase <single>.
+
+    Inherits all other CLI args from the current invocation, so flags like
+    --output-dir, --grader-model, --tensor-parallel-size etc. propagate.
+    """
+    base = [sys.executable, sys.argv[0]]
+    skip = False
+    for tok in sys.argv[1:]:
+        if skip:
+            skip = False
+            continue
+        if tok in ("--models", "--phase"):
+            skip = True
+            continue
+        if tok.startswith("--models=") or tok.startswith("--phase="):
+            continue
+        base.append(tok)
+    base += ["--models", model_id, "--phase", phase]
+    print(f"\n[run.py] >>> {phase} {model_id}", flush=True)
+    subprocess.run(base, check=True)
 
 
 if __name__ == "__main__":
