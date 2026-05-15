@@ -1,19 +1,20 @@
 """Run the insider-trading deception eval on open-weight HF models.
 
 Phases (control via --phase):
-  generate : rollouts + GPT-4o grading via inspect_ai + vLLM
+  generate : rollouts + grading via inspect_ai + vLLM
              writes <hf-id-with-/-as-->-generations.json
   extract  : residual-stream activations via transformers + forward hooks
              writes <hf-id-with-/-as-->-activations.pt
-  all      : both, in order (default)
+  rejudge  : re-run the three graders over an existing generations JSON with a
+             different grader model
+             writes <hf-id-with-/-as-->-generations.<grader-short>.json
+  all      : generate + extract (rejudge is opt-in, default)
 
 Examples:
   # Both phases, two models, 100 rollouts each
   python run.py \\
       --models meta-llama/Llama-3.1-8B-Instruct,Qwen/Qwen2.5-32B-Instruct \\
-      --n 100 \\
-      --openai-api-key sk-... \\
-      --hf-token hf_...
+      --n 100
 
   # Only re-extract activations (transcripts already exist)
   python run.py \\
@@ -21,13 +22,20 @@ Examples:
       --phase extract
 
   # Only generate transcripts (no activations)
-  python run.py --models <id> --n 100 --phase generate --openai-api-key sk-...
+  python run.py --models <id> --n 100 --phase generate
+
+  # Re-judge existing transcripts with a different grader
+  python run.py \\
+      --models meta-llama/Llama-3.1-8B-Instruct \\
+      --phase rejudge \\
+      --grader-model openai/gpt-4o-2024-08-06
 
 Requirements:
   pip install vllm                       # generation backend (gen phase only)
   pip install flashinfer                 # required by vLLM for Gemma-2 softcap
-  HF_TOKEN env var (or --hf-token) for gated models (Llama, Gemma).
-  OPENAI_API_KEY env var (or --openai-api-key) for the GPT-4o grader.
+  Credentials are loaded from <repo-root>/.env:
+    OPENAI_API_KEY=...   # for the judge model (gen & rejudge phases)
+    HF_TOKEN=...         # for gated models (Llama, Gemma)
 
 Storage note: activation files can be very large (all layers × all assistant
 tokens × all rollouts, bf16). For Llama-70B at n=6000 expect ~hundreds of GB
@@ -40,10 +48,23 @@ import os
 import sys
 from pathlib import Path
 
+import dotenv
+
 HERE = Path(__file__).resolve().parent
+REPO_ROOT = HERE.parent
+ENV_FILE = REPO_ROOT / ".env"
 sys.path.insert(0, str(HERE))
 
-from generate import generate_for_model  # noqa: E402
+dotenv.load_dotenv(ENV_FILE, override=False)
+# HuggingFace SDK respects both names; mirror for consistency.
+if "HF_TOKEN" in os.environ and "HUGGING_FACE_HUB_TOKEN" not in os.environ:
+    os.environ["HUGGING_FACE_HUB_TOKEN"] = os.environ["HF_TOKEN"]
+
+from generate import (  # noqa: E402
+    DEFAULT_GRADER_MODEL,
+    generate_for_model,
+    rejudge_for_model,
+)
 from extract import extract_for_model  # noqa: E402
 
 
@@ -61,19 +82,26 @@ def main() -> None:
     )
     parser.add_argument(
         "--phase",
-        choices=["all", "generate", "extract"],
+        choices=["all", "generate", "extract", "rejudge"],
         default="all",
-        help="Which phase(s) to run.",
+        help="Which phase(s) to run. 'all' = generate + extract (rejudge is opt-in).",
     )
     parser.add_argument(
-        "--openai-api-key",
-        default=None,
-        help="OpenAI API key for the GPT-4o grader. Falls back to OPENAI_API_KEY env var.",
+        "--grader-model",
+        default=DEFAULT_GRADER_MODEL,
+        help=f"inspect_ai model spec for the judge (default: {DEFAULT_GRADER_MODEL}). "
+        "Applies to generate and rejudge phases.",
     )
     parser.add_argument(
-        "--hf-token",
+        "--rejudge-concurrency",
+        type=int,
+        default=20,
+        help="Concurrent grader API calls during rejudge phase.",
+    )
+    parser.add_argument(
+        "--rejudge-input",
         default=None,
-        help="HuggingFace token for gated models. Falls back to HF_TOKEN env var.",
+        help="Path to a non-default generations JSON to rejudge (only valid with one --models entry).",
     )
     parser.add_argument(
         "--output-dir",
@@ -132,15 +160,9 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    if args.openai_api_key:
-        os.environ["OPENAI_API_KEY"] = args.openai_api_key
-    if args.hf_token:
-        os.environ["HF_TOKEN"] = args.hf_token
-        os.environ["HUGGING_FACE_HUB_TOKEN"] = args.hf_token
-
-    if args.phase in ("all", "generate") and "OPENAI_API_KEY" not in os.environ:
+    if args.phase in ("all", "generate", "rejudge") and "OPENAI_API_KEY" not in os.environ:
         sys.exit(
-            "error: generation phase needs OPENAI_API_KEY (pass --openai-api-key or set env)."
+            f"error: {args.phase} phase needs OPENAI_API_KEY (set it in {ENV_FILE})."
         )
 
     output_dir = Path(args.output_dir)
@@ -150,6 +172,9 @@ def main() -> None:
     if not models:
         sys.exit("error: --models must list at least one HF model id.")
 
+    if args.rejudge_input is not None and len(models) > 1:
+        sys.exit("error: --rejudge-input is only valid with a single --models entry.")
+
     for model_id in models:
         print(f"\n=== {model_id} ===")
         if args.phase in ("all", "generate"):
@@ -158,6 +183,7 @@ def main() -> None:
                 n=args.n,
                 output_dir=output_dir,
                 variant=args.variant,
+                grader_model=args.grader_model,
                 tensor_parallel_size=args.tensor_parallel_size,
                 gpu_memory_utilization=args.gpu_memory_utilization,
                 max_model_len=args.max_model_len,
@@ -171,6 +197,14 @@ def main() -> None:
                 output_dir=output_dir,
                 max_layer=args.max_layer,
                 limit=args.extract_limit,
+            )
+        if args.phase == "rejudge":
+            rejudge_for_model(
+                model_id=model_id,
+                output_dir=output_dir,
+                grader_model=args.grader_model,
+                input_path=Path(args.rejudge_input) if args.rejudge_input else None,
+                max_concurrency=args.rejudge_concurrency,
             )
 
 

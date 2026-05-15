@@ -149,6 +149,34 @@ def install_deps(uv: str, venv_python: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Step 4b: install vLLM (required by insider-trading/run.py generation phase)
+# ---------------------------------------------------------------------------
+
+def install_vllm(uv: str, venv_python: str) -> None:
+    """Install vLLM + flashinfer-python into the venv.
+
+    Required by insider-trading/run.py for the `generate` phase.
+    Large download (~GB of CUDA wheels). flashinfer-python is needed by vLLM
+    specifically for Gemma-2 softcap logits.
+
+    The venv was created with --without-pip, so `pip install vllm` from an
+    activated shell would silently install to ~/.local/lib/python3.10/ via the
+    system pip — uv with --python pins the right interpreter.
+    """
+    print("[installthings] Installing vLLM + flashinfer-python into venv ...")
+    try:
+        subprocess.check_call([
+            uv, "pip", "install",
+            "--python", venv_python,
+            "vllm",
+            "flashinfer-python",
+        ])
+    except subprocess.CalledProcessError as e:
+        print(f"[installthings] WARNING: vLLM install failed ({e}).")
+        print(f"  Retry with:  {uv} pip install --python {venv_python} vllm flashinfer-python")
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -176,6 +204,9 @@ def main() -> None:
 
     # 4. Install deps
     install_deps(uv, venv_python)
+
+    # 4b. vLLM for the insider-trading generation phase
+    install_vllm(uv, venv_python)
 
     run_cmd = f"{venv_python} {os.path.join(PROJECT_DIR, 'runthings.py')}"
     print("\n[installthings] ============================================================")
