@@ -34,17 +34,17 @@ def _load_model(model_id):
     return model
 
 # ── Hyperparameters (adjust as needed) ───────────────────────────────────────
-M = 100          # autocompletion length: number of tokens to generate per prefix
+M = 200          # autocompletion length: number of tokens to generate per prefix
 C = 1          # considered length: number of prefix positions to iterate over
-JSONL_FILE = "more-roleplay.jsonl"
+JSONL_FILE = "autoconv10.jsonl"
 MODELS_FILE = "models.md"
-DATA_DIR = "data-autconv11" # + os.path.splitext(os.path.basename(JSONL_FILE))[0]
+DATA_DIR = "data-" + os.path.splitext(os.path.basename(JSONL_FILE))[0]
 
 
 def get_default_layer_indices(num_layers):
     """Select layers at D//4, 3*D//8, D//2, 3*D//4 of the model's depth D."""
     D = num_layers
-    return [D // 4, 3 * D // 8, D // 2, 3 * D // 4]
+    return [i for i in range(min(D, 60))] #D // 4, 3 * D // 8, D // 2, 3 * D // 4]
 
 
 def load_models_list():
