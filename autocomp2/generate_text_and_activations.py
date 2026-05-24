@@ -24,7 +24,7 @@ def _load_model(model_id):
     Mistral Small 3.1, etc.)."""
     kwargs = dict(dtype=torch.bfloat16, device_map="auto",
                   trust_remote_code=True,
-                  max_memory={0: "60GiB", "cpu": "400GiB"})
+                  max_memory={0: "25GiB", "cpu": "400GiB"})
     try:
         model = AutoModelForCausalLM.from_pretrained(model_id, **kwargs)
     except (ValueError, KeyError):
