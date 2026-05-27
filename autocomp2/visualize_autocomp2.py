@@ -33,12 +33,14 @@ def load_models(data_dir: Path) -> dict:
 
     models = {}
     for f in files:
-        with open(f, encoding="utf-8") as fh:
-            data = json.load(fh)
-        model_name = data.get("model", f.stem.replace("--", "/"))
-        models[model_name] = data
-        n = len(data["conversations"])
-        print(f"  {model_name}: {n} conversations, m={data['m']}, c={data['c']}")
+        if "scored" not in str(f):
+          with open(f, encoding="utf-8") as fh:
+              data = json.load(fh)
+          model_name = data.get("model", f.stem.replace("--", "/"))
+          models[model_name] = data
+          print(f"{f=} {data.keys()}")
+          n = len(data["conversations"])
+          print(f"  {model_name}: {n} conversations, m={data['m']}, c={data['c']}")
     return models
 
 
