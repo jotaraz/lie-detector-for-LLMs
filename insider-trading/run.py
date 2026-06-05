@@ -53,14 +53,14 @@ import subprocess
 import sys
 from pathlib import Path
 
-import dotenv
+#import dotenv
 
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parent
 ENV_FILE = REPO_ROOT / ".env"
 sys.path.insert(0, str(HERE))
 
-dotenv.load_dotenv(ENV_FILE, override=False)
+#dotenv.load_dotenv(ENV_FILE, override=False)
 # HuggingFace SDK respects both names; mirror for consistency.
 if "HF_TOKEN" in os.environ and "HUGGING_FACE_HUB_TOKEN" not in os.environ:
     os.environ["HUGGING_FACE_HUB_TOKEN"] = os.environ["HF_TOKEN"]
