@@ -87,11 +87,7 @@ def install_python_via_apt() -> None:
     print("[installthings] No suitable Python found. Installing python3.12...")
 
     # uv can download standalone CPython builds without needing a PPA
-    uv = find_uv()
-    if not uv:
-        print("[installthings] Installing uv to bootstrap Python install...")
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "uv"])
-        uv = find_uv()
+    uv = _install_uv()
 
     if uv:
         print("[installthings] Installing python3.12 via uv python install...")
@@ -157,15 +153,63 @@ def find_uv() -> str | None:
     return None
 
 
+def install_uv_standalone() -> str | None:
+    """Install uv via its official standalone installer (curl/wget + sh).
+
+    This needs no pip and no usable `sys.executable`. Both can be missing on
+    minimal cluster nodes — some job launchers leave sys.executable as an empty
+    string, which makes `python -m pip install uv` crash with
+    `PermissionError: [Errno 13] Permission denied: ''`.
+    """
+    for fetcher in (["curl", "-LsSf"], ["wget", "-qO-"]):
+        if not shutil.which(fetcher[0]):
+            continue
+        print(f"[installthings] Installing uv via standalone installer ({fetcher[0]}) ...")
+        try:
+            script = subprocess.check_output(
+                fetcher + ["https://astral.sh/uv/install.sh"], text=True
+            )
+            subprocess.run(["sh"], input=script, text=True, check=True)
+        except (subprocess.CalledProcessError, FileNotFoundError) as e:
+            print(f"[installthings] standalone uv install via {fetcher[0]} failed: {e}")
+            continue
+        uv = find_uv()
+        if uv:
+            return uv
+    return None
+
+
+def _pip_install_uv() -> str | None:
+    """Last-resort uv install via pip, using any real interpreter we can find.
+
+    `sys.executable` may be an empty string on some clusters, so fall back to
+    `python3` / `python` on PATH before giving up.
+    """
+    py = sys.executable or shutil.which("python3") or shutil.which("python")
+    if not py:
+        return None
+    print(f"[installthings] Installing uv via pip ({py}) ...")
+    try:
+        subprocess.check_call([py, "-m", "pip", "install", "uv"])
+    except subprocess.CalledProcessError as e:
+        print(f"[installthings] pip install uv failed: {e}")
+        return None
+    return find_uv()
+
+
+def _install_uv() -> str | None:
+    """Obtain a uv binary: already present → standalone installer → pip."""
+    return find_uv() or install_uv_standalone() or _pip_install_uv()
+
+
 def ensure_uv() -> str:
-    uv = find_uv()
-    if uv:
-        return uv
-    print("[installthings] uv not found. Installing via pip...")
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "uv"])
-    uv = find_uv()
+    uv = _install_uv()
     if not uv:
-        raise RuntimeError("uv installation failed — cannot find uv binary after install.")
+        raise RuntimeError(
+            "uv installation failed — could not bootstrap uv via the standalone "
+            "installer or pip. Install it manually (https://docs.astral.sh/uv/) "
+            "and re-run, or add ~/.local/bin to PATH if uv is already installed."
+        )
     return uv
 
 
