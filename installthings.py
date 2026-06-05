@@ -183,6 +183,28 @@ def install_deps(uv: str, venv_python: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Step 4a: install insider-trading runtime deps not declared in pyproject
+# ---------------------------------------------------------------------------
+
+# insider-trading/run.py (and the generate/extract modules it imports) pull in a
+# couple of packages that the project's pyproject does NOT declare:
+#   - filelock : run.py does `from filelock import SoftFileLock`
+#   - pyyaml   : generate.py does `import yaml`
+# These usually arrive transitively via torch/transformers, but that is not
+# guaranteed, so install them explicitly to make `run.py` reliably importable.
+INSIDER_TRADING_EXTRAS = ["filelock", "pyyaml"]
+
+
+def install_insider_trading_extras(uv: str, venv_python: str) -> None:
+    print("[installthings] Installing insider-trading extras (filelock, pyyaml) ...")
+    subprocess.check_call([
+        uv, "pip", "install",
+        "--python", venv_python,
+        *INSIDER_TRADING_EXTRAS,
+    ])
+
+
+# ---------------------------------------------------------------------------
 # Step 4b: install vLLM (required by insider-trading/run.py generation phase)
 # ---------------------------------------------------------------------------
 
@@ -238,6 +260,9 @@ def main() -> None:
 
     # 4. Install deps
     install_deps(uv, venv_python)
+
+    # 4a. Extra runtime deps for insider-trading/run.py not declared in pyproject
+    install_insider_trading_extras(uv, venv_python)
 
     # 4b. vLLM for the insider-trading generation phase
     install_vllm(uv, venv_python)
