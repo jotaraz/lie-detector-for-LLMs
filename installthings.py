@@ -26,38 +26,58 @@ VENV_DIR = os.path.join(PROJECT_DIR, ".venv")
 # Step 1: find or install a suitable base Python
 # ---------------------------------------------------------------------------
 
+# Supported Python range: >= MIN, < MAX.
+# Upper bound matters because the pinned deps (e.g. matplotlib~=3.9.2) ship no
+# wheels for Python 3.14+, so uv would try to build them from source and fail
+# (freetype 2.6.1 does not compile under clang 17).
+MIN_PY = (3, 11)
+MAX_PY = (3, 14)
+
+
+def python_version(candidate: str) -> tuple[int, int] | None:
+    """Return (major, minor) for a Python executable, or None if it can't run."""
+    try:
+        version = subprocess.check_output(
+            [candidate, "-c", "import sys; print(sys.version_info[:2])"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+        return eval(version)
+    except (subprocess.CalledProcessError, FileNotFoundError, ValueError):
+        return None
+
+
 def find_python() -> str | None:
-    """Return path to a Python >= 3.11 with working lzma, or None."""
+    """Return path to a supported Python (MIN_PY <= v < MAX_PY) with lzma, or None."""
     import glob
     uv_pythons = sorted(glob.glob(
-        os.path.expanduser("~/.local/share/uv/python/cpython-3.1[1-9]*-linux-x86_64-gnu/bin/python3.*")
+        os.path.expanduser("~/.local/share/uv/python/cpython-3.1[1-9]*/bin/python3.*")
     ), reverse=True)
-    candidates = [sys.executable] + [
+    # Prefer explicitly-named supported versions over sys.executable, which may
+    # be a too-new interpreter (e.g. 3.14) that passes the lower bound but lacks
+    # prebuilt wheels for the pinned dependencies.
+    candidates = [
         shutil.which(name) or ""
         for name in ["python3.13", "python3.12", "python3.11"]
     ] + uv_pythons + [
         "/opt/az/bin/python3.13",
         "/home/ubuntu/.local/share/uv/python/cpython-3.11-linux-aarch64-gnu/bin/python3.11",
+        sys.executable,
     ]
 
     for candidate in candidates:
         if not candidate:
             continue
+        version = python_version(candidate)
+        if version is None or not (MIN_PY <= version < MAX_PY):
+            continue
         try:
-            version = subprocess.check_output(
-                [candidate, "-c", "import sys; print(sys.version_info[:2])"],
-                text=True,
-                stderr=subprocess.DEVNULL,
-            ).strip()
-            major, minor = eval(version)
-            if (major, minor) < (3, 11):
-                continue
             subprocess.check_output(
                 [candidate, "-c", "import lzma"],
                 stderr=subprocess.DEVNULL,
             )
             return candidate
-        except (subprocess.CalledProcessError, FileNotFoundError, ValueError):
+        except (subprocess.CalledProcessError, FileNotFoundError):
             continue
     return None
 
@@ -94,15 +114,29 @@ def install_python_via_apt() -> None:
 # ---------------------------------------------------------------------------
 
 def create_venv(base_python: str) -> str:
-    """Create .venv with the given base Python; return path to venv Python."""
+    """Create .venv with the given base Python; return path to venv Python.
+
+    If a venv already exists but its Python is outside the supported range, it is
+    removed and recreated — otherwise a stale 3.14 venv would keep failing to
+    install the pinned deps.
+    """
+    import shutil as _shutil
     venv_python = os.path.join(VENV_DIR, "bin", "python")
     if os.path.isfile(venv_python):
-        print(f"[installthings] Virtual environment already exists at {VENV_DIR}")
-    else:
-        print(f"[installthings] Creating virtual environment at {VENV_DIR} ...")
-        # --without-pip: uv will manage packages; we avoid the pip bootstrap delay
-        subprocess.check_call([base_python, "-m", "venv", "--without-pip", VENV_DIR])
-        print(f"[installthings] Virtual environment created.")
+        existing = python_version(venv_python)
+        if existing is not None and MIN_PY <= existing < MAX_PY:
+            print(f"[installthings] Virtual environment already exists at {VENV_DIR}")
+            return venv_python
+        print(
+            f"[installthings] Existing venv uses unsupported Python {existing}; "
+            f"recreating with {base_python} ..."
+        )
+        _shutil.rmtree(VENV_DIR)
+
+    print(f"[installthings] Creating virtual environment at {VENV_DIR} ...")
+    # --without-pip: uv will manage packages; we avoid the pip bootstrap delay
+    subprocess.check_call([base_python, "-m", "venv", "--without-pip", VENV_DIR])
+    print(f"[installthings] Virtual environment created.")
     return venv_python
 
 

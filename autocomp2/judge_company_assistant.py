@@ -21,14 +21,14 @@ from dotenv import load_dotenv
 from openai import AsyncOpenAI, RateLimitError, APIStatusError
 from tqdm.asyncio import tqdm as atqdm
 
-REPO_ROOT = Path("/home/ubuntu/lie-detector-for-LLMs")
+REPO_ROOT = Path("/Users/jo/code/Jinesis/deception-detection")
 DATA_DIR = REPO_ROOT / "autocomp2" / "data-company-assistant-roleplay"
 
 
 
 #INPUT_PATH = DATA_DIR / "meta-llama--Llama-3.1-8B-Instruct.json"
 #INPUT_PATH = DATA_DIR / "google--gemma-3-12b-it.json"
-INPUT_PATH = DATA_DIR / "Qwen--Qwen2.5-32B-Instruct.json"
+INPUT_PATH = DATA_DIR / "Qwen--Qwen2.5-72B-Instruct.json"
 
 
 JUDGE_MODEL = "gpt-5.4-mini"

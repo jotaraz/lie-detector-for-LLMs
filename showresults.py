@@ -13,6 +13,12 @@ or computed on the fly from scores.json for newer probe-architecture runs.
 Flags:
   --onlycomplete   Hide rows that are missing any eval dataset present in other
                    rows for the same model.
+  --onlybestauroc  For each model, print only the single row with the highest
+                   AUROC on 'roleplaying__plain'.
+  --onlybestrecall For each model, print only the single row with the highest
+                   recall@1%FPR on 'roleplaying__plain'.
+  --onlybestproduct For each model, print only the single row with the highest
+                   AUROC × recall@1%FPR product on 'roleplaying__plain'.
 """
 
 import json
@@ -28,11 +34,11 @@ from sklearn.metrics import roc_auc_score, roc_curve
 RESULTS_DIR = Path(__file__).parent / "results"
 
 RELEVANT_MODELS = [
-    #"llama-8b",
+    "llama-8b",
     "llama-70b-3.3",
     #"llama-70b",
-    #"gemma-9b",
-    #"gemma3-12b",
+    "gemma-9b",
+    "gemma3-12b",
     "qwen-32b",
     "qwen-72b",
 ]
@@ -192,8 +198,11 @@ def print_model_table(model: str, rows: list[dict], all_datasets: list[str], sho
 # ── Main ───────────────────────────────────────────────────────────────────────
 
 def main() -> None:
-    only_complete = "--onlycomplete" in sys.argv
-    show_train    = "--show-training-data" in sys.argv
+    only_complete     = "--onlycomplete" in sys.argv
+    only_best_auroc   = "--onlybestauroc" in sys.argv
+    only_best_recall  = "--onlybestrecall" in sys.argv
+    only_best_product = "--onlybestproduct" in sys.argv
+    show_train        = "--show-training-data" in sys.argv
     # Collect data keyed by model name
     model_data: dict[str, list[dict]] = defaultdict(list)
     model_datasets: dict[str, set[str]] = defaultdict(set)
@@ -249,6 +258,26 @@ def main() -> None:
             rows = [r for r in rows if full_set.issubset(r["aurocs"].keys())]
             if not rows:
                 continue
+        best_metric = None
+        needs_recall = False
+        if only_best_auroc:
+            best_metric = lambda v: v[0]
+        elif only_best_recall:
+            best_metric, needs_recall = lambda v: v[1], True
+        elif only_best_product:
+            best_metric, needs_recall = lambda v: v[0] * v[1], True
+        if best_metric is not None:
+            def _score(r):
+                v = r["aurocs"].get("roleplaying__plain")
+                if not v or v[0] != v[0]:  # missing or NaN auroc
+                    return None
+                if needs_recall and v[1] is None:
+                    return None
+                return best_metric(v)
+            scored = [(s, r) for r in rows if (s := _score(r)) is not None]
+            if not scored:
+                continue
+            rows = [max(scored, key=lambda sr: sr[0])[1]]
         print_model_table(model, rows, datasets, show_train=show_train)
 
     print()
