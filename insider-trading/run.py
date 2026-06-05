@@ -41,12 +41,11 @@ Storage note: activation files can be very large (all layers × all assistant
 tokens × all rollouts, bf16). For Llama-70B at n=6000 expect ~hundreds of GB
 per model. Reduce --n or --max-layer if needed.
 """
+from __future__ import annotations
+
 from filelock import SoftFileLock
 import filelock
 filelock.FileLock = SoftFileLock
-
-
-from __future__ import annotations
 
 import argparse
 import os
