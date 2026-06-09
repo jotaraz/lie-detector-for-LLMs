@@ -6,6 +6,7 @@ so they slot in alongside the small result files already tracked in git.
 Usage:
     python pull_from_hf.py                         # download all large files
     python pull_from_hf.py --experiment foo__bar   # only one experiment folder
+    python pull_from_hf.py --path autocomp2/data-autoconv3/  # any path substring
     python pull_from_hf.py --dry_run               # preview what would be downloaded
     python pull_from_hf.py --repo_id other/repo    # override repo
 """
@@ -21,6 +22,7 @@ REPO_ID = "jo-chen/lie-detector-results"
 def pull(
     repo_id: str = REPO_ID,
     experiment: str | None = None,
+    path: str | None = None,
     dry_run: bool = False,
 ) -> None:
     api = HfApi()
@@ -34,8 +36,14 @@ def pull(
     if experiment is not None:
         all_files = [f for f in all_files if f"results/{experiment}/" in f]
 
+    if path is not None:
+        all_files = [f for f in all_files if path in f]
+
     if not all_files:
-        print("No files found" + (f" for experiment '{experiment}'" if experiment else "") + ".")
+        filt = (
+            f" for experiment '{experiment}'" if experiment else ""
+        ) + (f" matching path '{path}'" if path else "")
+        print(f"No files found{filt}.")
         return
 
     print(f"Found {len(all_files)} files in {repo_id}")
