@@ -88,6 +88,12 @@ PROBE_TRAINSETS = dict(PROBE_CONFIGS)
 
 CLS_CODE = {"honest": 0, "deceptive": 1, "control": 2}
 
+# Defaults resolve relative to this script's directory (not the CWD), so the
+# script can be invoked from anywhere; --root/--out override.
+SCRIPT_DIR = Path(__file__).resolve().parent
+DEFAULT_ROOT = str(SCRIPT_DIR / "autocomp2")
+DEFAULT_OUT = str(SCRIPT_DIR / "results" / "probe-comparison")
+
 # ----------------------------------------------------------------------------
 # Scored-file selection (spec §3): judge gpt-5.4-mini, timestamped only,
 # latest timestamp wins.
@@ -842,8 +848,11 @@ def main():
                     help="repe convention: sklearn C = 1/reg_coeff")
     pt.add_argument("--split-frac", type=float, default=0.8)
     pt.add_argument("--backend", choices=["torch", "sklearn"], default="torch")
-    pt.add_argument("--root", default="autocomp2")
-    pt.add_argument("--out", default="results/probe-comparison")
+    pt.add_argument("--root", default=DEFAULT_ROOT,
+                    help="autocomp2 data root (default: next to this script)")
+    pt.add_argument("--out", default=DEFAULT_OUT,
+                    help="results dir (default: results/probe-comparison "
+                         "next to this script)")
     pt.add_argument("--force", action="store_true",
                     help="recompute blocks even if outputs exist")
     pt.add_argument("--no-validate", action="store_true",
@@ -852,7 +861,9 @@ def main():
 
     pp = sub.add_parser("plot", help="regenerate summary.csv and render PNGs "
                                      "for the best layer per (model, probe)")
-    pp.add_argument("--out", default="results/probe-comparison")
+    pp.add_argument("--out", default=DEFAULT_OUT,
+                    help="results dir (default: results/probe-comparison "
+                         "next to this script)")
     pp.set_defaults(func=cmd_plot)
 
     args = p.parse_args()
