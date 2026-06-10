@@ -167,12 +167,25 @@ class DirData:
             obj = torch.load(self.pt_path, map_location="cpu",
                              weights_only=True, mmap=True)
             t = obj["autocompletion_activations"]
-            if t.shape[0] != self.N or t.shape[2] != self.m \
-                    or t.shape[3] != len(self.layers):
+            # N and m align tokens with conversations and labels — a mismatch
+            # there means the json and pt describe different data: hard fail.
+            if t.shape[0] != self.N or t.shape[2] != self.m:
                 raise ValueError(
-                    f"{self.pt_path}: activation shape {tuple(t.shape)} does not "
-                    f"match metadata (N={self.N}, m={self.m}, "
-                    f"L={len(self.layers)})")
+                    f"{self.pt_path}: activation shape {tuple(t.shape)} does "
+                    f"not match metadata (N={self.N}, m={self.m})")
+            # The layer axis may be larger than the (stale) json says, e.g.
+            # activations regenerated with all layers without updating the
+            # json. The json's `layers` list is our only map from absolute
+            # layer number to tensor index, so on mismatch we assume the pt
+            # holds the contiguous first layers 0..L-1 (the regeneration
+            # scheme). If a regenerated pt ever holds a non-contiguous layer
+            # subset, its json MUST be correct — hence the loud warning.
+            if t.shape[3] != len(self.layers):
+                assumed = list(range(t.shape[3]))
+                print(f"  WARNING: {self.name}: pt has {t.shape[3]} layers but "
+                      f"json says {self.layers} — assuming layers "
+                      f"{assumed[0]}..{assumed[-1]} (stale json?)")
+                self.layers = assumed
             self._acts = t
         return self._acts
 
@@ -535,6 +548,12 @@ def cmd_train(args):
     dirs = {dn: load_dir(root, dn, model_fname, need_labels)
             for dn, need_labels in needed.items()}
 
+    # Open all activation files now (cheap with mmap): checks mmap works,
+    # validates shapes against metadata, and reconciles stale layer lists —
+    # must happen before the layer intersection below.
+    for dd in dirs.values():
+        dd.acts()
+
     splits = build_splits(dirs, args.split_frac)
 
     layer_sets = [set(dd.layers) for dd in dirs.values()]
@@ -557,10 +576,6 @@ def cmd_train(args):
         sys.exit("no layers to process")
 
     print_manifest(dirs, splits, layers, model_fname)
-
-    # mmap availability check (spec §12.4) — opens all activation files.
-    for dd in dirs.values():
-        dd.acts()
 
     token_structs = None     # built lazily at the first processed layer
     validated = args.no_validate or args.backend == "sklearn"
