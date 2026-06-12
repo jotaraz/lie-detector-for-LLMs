@@ -34,12 +34,17 @@ def _load_model(model_id):
     model.eval()
     return model
 
+# Anchor all paths to this script's location so the script works regardless of
+# the current working directory (e.g. when launched from a remote node).
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
 # ── Hyperparameters (adjust as needed) ───────────────────────────────────────
 M = 200          # autocompletion length: number of tokens to generate per prefix
 C = 1          # considered length: number of prefix positions to iterate over
 JSONL_FILE = "autoconv10.jsonl"
-MODELS_FILE = "models.md"
-DATA_DIR = "data-" + os.path.splitext(os.path.basename(JSONL_FILE))[0]
+MODELS_FILE = os.path.join(SCRIPT_DIR, "models.md")
+DATA_DIR = os.path.join(SCRIPT_DIR, "data",
+                        "data-" + os.path.splitext(os.path.basename(JSONL_FILE))[0])
 
 
 def get_default_layer_indices(num_layers):
@@ -566,7 +571,8 @@ def main():
         return
 
     jsonl_file = args.jsonl or JSONL_FILE
-    data_dir = "data-" + os.path.splitext(os.path.basename(jsonl_file))[0]
+    data_dir = os.path.join(SCRIPT_DIR, "data",
+                            "data-" + os.path.splitext(os.path.basename(jsonl_file))[0])
 
     os.makedirs(data_dir, exist_ok=True)
     conversations = load_conversations(jsonl_file)
