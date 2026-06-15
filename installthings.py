@@ -12,6 +12,10 @@ It will:
 5. Print the exact command to use for running runthings.py.
 """
 
+# Keep annotations as strings so this file imports under the system Python
+# (e.g. macOS 3.9), which predates the `X | None` union syntax used below.
+from __future__ import annotations
+
 import shutil
 import subprocess
 import sys
