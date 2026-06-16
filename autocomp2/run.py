@@ -9,14 +9,14 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 GEN_SCRIPT = os.path.join(HERE, "generate_text_and_activations.py")
 
 models = [
-	  #   'meta-llama/Llama-3.3-70B-Instruct',
-      #   'meta-llama/Llama-3.1-8B-Instruct',
-	  # 'Qwen/Qwen2.5-32B-Instruct',
-	  'google/gemma-2-9b-it',
-	  'google/gemma-3-12b-it',
-	  'google/gemma-3-27b-it',
-	  # 'Qwen/Qwen2.5-72B-Instruct',
-	]
+    #   'meta-llama/Llama-3.3-70B-Instruct',
+    #   'meta-llama/Llama-3.1-8B-Instruct',
+    # 'Qwen/Qwen2.5-32B-Instruct',
+    #'google/gemma-2-9b-it',
+    'google/gemma-3-12b-it',
+    #'google/gemma-3-27b-it',
+    # 'Qwen/Qwen2.5-72B-Instruct',
+]
 
 scenarios = ["more-roleplay-explicit", "ir-honest-explicit", "ir-dishonest-explicit"]
 
