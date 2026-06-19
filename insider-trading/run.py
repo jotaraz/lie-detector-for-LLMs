@@ -131,6 +131,18 @@ def main() -> None:
         help="vLLM gpu_memory_utilization (default 0.9).",
     )
     parser.add_argument(
+        "--quantization",
+        default=None,
+        help="vLLM quantization method (e.g. 'awq_marlin' for AWQ checkpoints). "
+        "Omit to let vLLM auto-detect from the model config (e.g. MXFP4, FP8).",
+    )
+    parser.add_argument(
+        "--enforce-eager",
+        action="store_true",
+        help="Disable CUDA graph capture in vLLM (frees the memory CUDA graphs "
+        "reserve; useful for very large models that are tight on GPU memory).",
+    )
+    parser.add_argument(
         "--max-model-len",
         type=int,
         default=None,
@@ -205,6 +217,8 @@ def main() -> None:
             grader_model=args.grader_model,
             tensor_parallel_size=args.tensor_parallel_size,
             gpu_memory_utilization=args.gpu_memory_utilization,
+            quantization=args.quantization,
+            enforce_eager=args.enforce_eager,
             max_model_len=args.max_model_len,
             max_connections=args.max_connections,
             temperature=args.temperature,

@@ -52,6 +52,24 @@ class PromptConfig(BaseModel):
 # ── Message-parsing helpers ──────────────────────────────────────────────────
 
 
+def _strip_think(message: str) -> str:
+    """Drop a leading chain-of-thought block from reasoning models (QwQ,
+    DeepSeek-R1 distills, etc.) so the ReAct 'Reasoning:/Action:' parser only
+    sees the model's actual response.
+
+    Handles both shapes: a full ``<think>...</think>`` pair, and the QwQ case
+    where the chat template injects the opening ``<think>`` so the completion
+    contains only the closing ``</think>``. Everything up to and including the
+    final ``</think>`` is reasoning. If no closing tag is present (generation
+    truncated mid-thought, or a non-reasoning model), the message is returned
+    unchanged — a truncated rollout then fails one-Action validation, which is
+    the correct outcome.
+    """
+    if "</think>" in message:
+        message = message.rsplit("</think>", 1)[1]
+    return message.strip()
+
+
 def _validate_one_action(message: str) -> bool:
     return message.count("Action:") == 1
 
@@ -106,6 +124,7 @@ async def _run_grader(
 
 
 async def _grade_trade_message(trade_message: str, grader_model: str) -> dict[str, str]:
+    trade_message = _strip_think(trade_message)
     try:
         assert _validate_one_action(trade_message)
         prompt = (PROMPT_BASE / "classify_trade_action.txt").read_text()
@@ -122,6 +141,7 @@ async def _grade_trade_message(trade_message: str, grader_model: str) -> dict[st
 
 
 async def _grade_report_message(report_message: str, grader_model: str) -> dict[str, str]:
+    report_message = _strip_think(report_message)
     try:
         assert _validate_one_action(report_message)
         assert "Executed trade update" in report_message
@@ -139,6 +159,7 @@ async def _grade_report_message(report_message: str, grader_model: str) -> dict[
 
 
 async def _grade_doubling_down_message(dd_message: str, grader_model: str) -> dict[str, str]:
+    dd_message = _strip_think(dd_message)
     try:
         assert _validate_one_action(dd_message)
         prompt = (PROMPT_BASE / "grading_prompt_double_down.txt").read_text()
@@ -165,7 +186,7 @@ def _grader_from_state(state: TaskState) -> str:
 
 
 async def _label_trade(state: TaskState) -> dict[str, str]:
-    msg = state.output.completion
+    msg = _strip_think(state.output.completion)
     if not _validate_one_action(msg):
         return {"made_trade": "invalid"}
     _, _, action = msg.partition("Action:")
@@ -251,6 +272,8 @@ def generate_for_model(
     grader_model: str = DEFAULT_GRADER_MODEL,
     tensor_parallel_size: int | None = None,
     gpu_memory_utilization: float = 0.9,
+    quantization: str | None = None,
+    enforce_eager: bool = False,
     max_model_len: int | None = None,
     max_connections: int = 32,
     temperature: float = 1.0,
@@ -269,6 +292,10 @@ def generate_for_model(
     }
     if tensor_parallel_size is not None:
         model_args["tensor_parallel_size"] = tensor_parallel_size
+    if quantization is not None:
+        model_args["quantization"] = quantization
+    if enforce_eager:
+        model_args["enforce_eager"] = True
     if max_model_len is not None:
         model_args["max_model_len"] = max_model_len
 
