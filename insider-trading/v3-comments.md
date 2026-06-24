@@ -1,0 +1,2 @@
+- If you look at all the samples from DeepSeek's v3 smoke test, we see that the response-form-judge says that "though it includes a stray closing </think> tag [...], which do not make it unusable." -- can you adjust the judge prompt such that it expects/is not confused by the </think> tag?
+- In the 1st (0-indexed) sample from DeepSeek the report_message is cut-off do we need more tokens here?
