@@ -94,6 +94,43 @@ def _strip_think(message: str) -> str:
     return message.strip()
 
 
+# gpt-oss (harmony) channel boundary: when vLLM decodes the harmony tokens to plain
+# text, the role+channel headers concatenate, so the completion reads
+# `analysis<reasoning>assistantfinal<answer>` (sometimes via an intermediate
+# `assistantcommentary<tool>`). We split on the `assistant(final|commentary)` token —
+# NOT bare `final`/`commentary`, which are common English words in the reasoning.
+_HARMONY_SPLIT_RE = re.compile(r"assistant(?:final|commentary)", re.I)
+
+
+def _normalize_cot(message: str) -> str:
+    """Judge-input only: re-envelope a reasoning model's chain-of-thought into the
+    same `Reasoning: \"\"\"...\"\"\"` form non-reasoning models emit, so the judges
+    see one uniform format. Handles two reasoning envelopes:
+
+    - `<think>...</think>` (R1/QwQ emit only the closing tag; opener is in the chat
+      template). Text before the last `</think>` -> Reasoning body, after -> action.
+    - harmony / gpt-oss: a leading `analysis` channel followed by the final answer at
+      the last `assistant(final|commentary)` marker. The analysis (+ any intermediate
+      commentary) becomes the Reasoning body; the final channel is the action segment.
+
+    Neither envelope present (non-reasoning turns) -> returned unchanged. This is NOT a
+    global rewrite: the stored raw message and all code-parsing (`_strip_think` &
+    callers) keep keying on the raw text."""
+    if "</think>" in message:
+        cot, _, rest = message.rpartition("</think>")
+        cot = cot.rsplit("<think>", 1)[-1].strip()
+        return f'Reasoning: """{cot}"""\n\n{rest.strip()}'
+    # harmony: only when the turn opens with the `analysis` channel AND a final marker
+    # is present (truncated-before-final turns have no marker -> left unchanged).
+    if message.lstrip()[:8].lower() == "analysis":
+        matches = list(_HARMONY_SPLIT_RE.finditer(message))
+        if matches:
+            last = matches[-1]
+            cot = re.sub(r"^\s*analysis", "", message[: last.start()], count=1, flags=re.I).strip()
+            return f'Reasoning: """{cot}"""\n\n{message[last.end():].strip()}'
+    return message
+
+
 def _select_action(message: str) -> str | None:
     """Return the relevant `Action:` segment, tolerating multiple actions per turn.
 
@@ -322,8 +359,10 @@ def dialogue_solver():
         state.metadata["trade_message"] = msg
         state.metadata |= _label_action(msg)  # code: tool_called (+ amount/security)
 
-        # Call 1 — response-form (always)
-        state.metadata |= await judge_response_form(msg, gm)
+        # Call 1 — response-form (always). Judges see a CoT-normalized view (raw is
+        # stored above; only the judge input is re-enveloped) — see _normalize_cot.
+        norm = _normalize_cot(msg)
+        state.metadata |= await judge_response_form(norm, gm)
 
         # Call 2 — trade-content (skip iff garbled)
         if state.metadata.get("coherence") == "garbled":
@@ -335,7 +374,7 @@ def dialogue_solver():
                 "is_scenario_security": "n/a",
             }
         else:
-            state.metadata |= await judge_trade_content(msg, gm)  # outputs kept as-is
+            state.metadata |= await judge_trade_content(norm, gm)  # outputs kept as-is
             raw = state.metadata.get("traded_security_raw", "")
             state.metadata["is_scenario_security_code"] = bool(raw) and bool(KNOWN_SECURITY_RE.search(raw))
 
