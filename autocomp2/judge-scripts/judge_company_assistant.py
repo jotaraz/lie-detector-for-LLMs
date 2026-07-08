@@ -28,8 +28,9 @@ from dotenv import load_dotenv
 from openai import AsyncOpenAI, RateLimitError, APIStatusError
 from tqdm.asyncio import tqdm as atqdm
 
-REPO_ROOT = Path("/Users/jo/code/Jinesis/deception-detection")
-DATA_DIR = REPO_ROOT / "autocomp2" / "data-company-assistant-roleplay"
+# Repo root, derived from this file's location (<repo>/autocomp2/judge-scripts/).
+REPO_ROOT = Path(__file__).resolve().parents[2]
+DATA_DIR = REPO_ROOT / "autocomp2" / "data" / "data-company-assistant-roleplay"
 
 tmp = sys.argv[1]
 if tmp == 'llama8':

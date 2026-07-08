@@ -7,14 +7,20 @@ Usage:
     python push_to_hf.py                          # push new/changed files only
     python push_to_hf.py --dry_run                # preview what would be uploaded
     python push_to_hf.py --repo_id other/repo     # override repo
+
+Uploads use huggingface_hub.upload_large_folder, which handles rate limiting and
+is resumable: if the process is interrupted (rate limit, Ctrl-C, crash), just run
+it again and it continues where it left off.
 """
 
-import hashlib
-import time
 from pathlib import Path
 
 import fire
-from huggingface_hub import CommitOperationAdd, HfApi, create_repo
+from huggingface_hub import HfApi, create_repo
+
+# Resolve everything relative to this script's location, NOT the current working
+# directory — so the script works no matter where it is invoked from.
+REPO_ROOT = Path(__file__).resolve().parent
 
 # Set this to your HuggingFace repo (will be created if it doesn't exist)
 REPO_ID = "jo-chen/lie-detector-results"
@@ -23,6 +29,8 @@ REPO_ID = "jo-chen/lie-detector-results"
 LARGE_FILE_SPECS = [
     ("results", "*_all_tokens.json"),
     ("results", "control_scores.json"),
+    ("results/probe-comparison", "*.pt"),
+    ("results/probe-comparison", "*.json"),
     ("autocomplete_results", "*.pt"),
     ("autocomp2/data-autoconv3", "*.pt"),
     ("autocomp2/data-autoconv4", "*.pt"),
@@ -31,6 +39,7 @@ LARGE_FILE_SPECS = [
     ("autocomp2/data-autoconv7", "*.pt"),
     ("autocomp2/data-autoconv8", "*.pt"),
     ("autocomp2/data-autoconv9", "*.pt"),
+    ("insider-trading/data", "*.pt"),
 ]
 
 
@@ -39,10 +48,21 @@ def push(
     dry_run: bool = False,
 ) -> None:
     files_to_upload: list[Path] = []
+    print(f"Current working directory: {Path.cwd()}")
+    print(f"Script/repo root (paths resolved against this): {REPO_ROOT}")
     for dir_name, pattern in LARGE_FILE_SPECS:
-        search_path = Path(dir_name)
-        if search_path.exists():
-            files_to_upload.extend(sorted(search_path.rglob(pattern)))
+        search_path = REPO_ROOT / dir_name
+        print(f"\nChecking '{dir_name}' (pattern '{pattern}') -> {search_path}")
+        if not search_path.exists():
+            print("  [missing] directory does not exist")
+            continue
+        all_files = sorted(p for p in search_path.rglob("*") if p.is_file())
+        print(f"  {len(all_files)} file(s) present (before pattern matching):")
+        #for p in all_files:
+        #    print(f"    {p}")
+        matched = sorted(search_path.rglob(pattern))
+        print(f"  {len(matched)} match pattern '{pattern}'")
+        files_to_upload.extend(matched)
 
     if not files_to_upload:
         print("No large result files found.")
@@ -59,64 +79,23 @@ def push(
     create_repo(repo_id, repo_type="dataset", exist_ok=True)
     api = HfApi()
 
-    # Build a map of {path_in_repo: sha256} for files already on HF
-    print("Fetching existing file list from HuggingFace...")
-    remote_sha256: dict[str, str] = {}
-    try:
-        for item in api.list_repo_tree(repo_id, repo_type="dataset", recursive=True):
-            if item.lfs is not None:
-                remote_sha256[item.path] = item.lfs.sha256
-    except Exception:
-        pass  # repo may be empty/new — treat everything as new
+    # HF rate-limits *commits* (not data transfer), so making many small commits
+    # is exactly what triggers 429s. upload_large_folder uploads files in
+    # parallel, bundles them into a few commits, backs off on rate limits on its
+    # own, and skips files already present unchanged. It is also RESUMABLE: if it
+    # dies or you Ctrl-C, just run this script again and it continues where it
+    # left off (progress is cached under <folder>/.cache/huggingface/).
+    allow_patterns = sorted({f"{dir_name}/{pattern}" for dir_name, pattern in LARGE_FILE_SPECS})
+    print(f"\nUploading via upload_large_folder with allow_patterns={allow_patterns}")
+    api.upload_large_folder(
+        repo_id=repo_id,
+        repo_type="dataset",
+        folder_path=str(REPO_ROOT),
+        allow_patterns=allow_patterns,
+        print_report=True,
+    )
 
-    def local_sha256(path: Path) -> str:
-        h = hashlib.sha256()
-        with open(path, "rb") as f:
-            for chunk in iter(lambda: f.read(8 * 1024 * 1024), b""):
-                h.update(chunk)
-        return h.hexdigest()
-
-    to_upload = []
-    skipped = 0
-    for file_path in files_to_upload:
-        repo_path = str(file_path)
-        if repo_path in remote_sha256 and local_sha256(file_path) == remote_sha256[repo_path]:
-            skipped += 1
-        else:
-            to_upload.append(file_path)
-
-    print(f"  {skipped} file(s) unchanged and skipped, {len(to_upload)} to upload.")
-
-    batch_size = 20
-    batches = [to_upload[i:i + batch_size] for i in range(0, len(to_upload), batch_size)]
-    for b_idx, batch in enumerate(batches, 1):
-        total_mb = sum(f.stat().st_size for f in batch) / 1e6
-        paths = ", ".join(str(f.name) for f in batch[:3])
-        if len(batch) > 3:
-            paths += f" (+{len(batch) - 3} more)"
-        print(f"[batch {b_idx}/{len(batches)}] {len(batch)} files ({total_mb:.0f} MB): {paths}")
-        operations = [
-            CommitOperationAdd(path_in_repo=str(f), path_or_fileobj=str(f))
-            for f in batch
-        ]
-        for attempt in range(5):
-            try:
-                api.create_commit(
-                    repo_id=repo_id,
-                    repo_type="dataset",
-                    operations=operations,
-                    commit_message=f"Upload batch {b_idx}/{len(batches)}",
-                )
-                break
-            except Exception as e:
-                if "429" in str(e) and attempt < 4:
-                    wait = 60 * (attempt + 1)
-                    print(f"  Rate limited, waiting {wait}s...")
-                    time.sleep(wait)
-                else:
-                    raise
-
-    print(f"\nDone. Uploaded {len(to_upload)} file(s) to {repo_id}")
+    print(f"\nDone. Pushed matching files to {repo_id}")
 
 
 if __name__ == "__main__":

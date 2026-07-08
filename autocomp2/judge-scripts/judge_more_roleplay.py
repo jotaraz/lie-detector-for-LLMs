@@ -14,7 +14,7 @@ Usage:
 
 Example:
     python judge_more_roleplay.py \
-        data-company-assistant-roleplay/meta-llama--Llama-3.3-70B-Instruct.json \
+        data/data-company-assistant-roleplay/meta-llama--Llama-3.3-70B-Instruct.json \
         gpt-5.4-mini
 """
 
@@ -28,13 +28,17 @@ from pathlib import Path
 from dotenv import load_dotenv
 from openai import OpenAI
 
-REPO_ROOT = Path("/Users/jo/code/Jinesis/deception-detection")
+# Repo root, derived from this file's location (<repo>/autocomp2/judge-scripts/).
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 # --- CLI arguments ----------------------------------------------------------
 # 1) path to the JSON file containing the to-be-judged conversations
 # 2) the judge model (e.g. gpt-5.4-mini)
 # 3) (optional) cap how many conversations are judged (the first N)
-INPUT_PATH = Path(sys.argv[1])
+# A relative path is resolved against REPO_ROOT/autocomp2 (where the `data/`
+# folder lives) so this works regardless of the current working directory; an
+# absolute path is used as-is.
+INPUT_PATH = REPO_ROOT / "autocomp2" / sys.argv[1]
 JUDGE_MODEL = sys.argv[2]
 max_number_convos = int(sys.argv[3]) if len(sys.argv) > 3 else None
 

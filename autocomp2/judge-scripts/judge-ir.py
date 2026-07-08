@@ -37,11 +37,16 @@ from dotenv import load_dotenv
 from openai import AsyncOpenAI, RateLimitError, APIStatusError
 from tqdm.asyncio import tqdm as atqdm
 
-REPO_ROOT = Path("/Users/jo/code/Jinesis/deception-detection")
+# Repo root, derived from this file's location (<repo>/autocomp2/judge-scripts/).
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 whichone = sys.argv[1]
+# `whichone` selects the input folder (e.g. "honest", "dishonest",
+# "honest-explicit", "dishonest-explicit"); the judge prompt itself is keyed only
+# on the honest/dishonest distinction, so strip any "-explicit" variant suffix.
+judge_key = whichone.replace("-explicit", "")
 
-DATA_DIR = REPO_ROOT / "autocomp2" / str("data-ir-"+whichone)
+DATA_DIR = REPO_ROOT / "autocomp2" / "data" / str("data-ir-"+whichone)
 
 tmp = sys.argv[2]
 if tmp == 'llama8':
@@ -346,7 +351,7 @@ async def score_one(client: AsyncOpenAI, conv: dict, sem: asyncio.Semaphore) -> 
                 resp = await client.chat.completions.create(
                     model=JUDGE_MODEL,
                     messages=[
-                        {"role": "system", "content": JUDGES[whichone]},
+                        {"role": "system", "content": JUDGES[judge_key]},
                         {"role": "user", "content": user_msg},
                     ],
                     response_format={"type": "json_object"},

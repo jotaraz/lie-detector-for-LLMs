@@ -1,10 +1,15 @@
 import os
+import sys
+from pathlib import Path
 
-models = ["meta-llama--Llama-3.1-8B-Instruct",
-          #"google--gemma-3-27b-it",
-          #"Qwen--Qwen2.5-72B-Instruct"
-         ]
+# Directory this script lives in, so the judge scripts can be found regardless
+# of the current working directory.
+SCRIPT_DIR = Path(__file__).resolve().parent
 
-for model in models:
-    os.system(f"python judge-ir.py honest {model} 20")
-    os.system(f"python judge-ir.py dishonest {model} 20")
+modeltag = sys.argv[1]
+model = f"google--gemma-{modeltag}it"
+
+#os.system(f'{sys.executable} "{SCRIPT_DIR / "judge_more_roleplay.py"}" data/data-more-roleplay-explicit/{model}.json gpt-5.4-mini')
+#os.system(f'{sys.executable} "{SCRIPT_DIR / "judge_company_assistant.py"}" {model}')
+os.system(f'{sys.executable} "{SCRIPT_DIR / "judge-ir.py"}" honest-explicit {model}')
+os.system(f'{sys.executable} "{SCRIPT_DIR / "judge-ir.py"}" dishonest-explicit {model}')

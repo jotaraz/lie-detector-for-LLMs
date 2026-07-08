@@ -55,11 +55,12 @@ KNOWN_MODELS = [
 # prompted_roleplay draws honest and deceptive conversations from two dirs.
 FULL_DATASETS = {
     "unprompted_roleplay": [
-        ("data-more-roleplay", {"honest": {"HONEST"}, "deceptive": {"DECEPTIVE"}}),
+        ("data-more-roleplay-explicit",
+         {"honest": {"HONEST"}, "deceptive": {"DECEPTIVE"}}),
     ],
     "prompted_roleplay": [
-        ("data-ir-honest", {"honest": {"HONEST"}}),
-        ("data-ir-dishonest", {"deceptive": {"DECEPTIVE"}}),
+        ("data-ir-honest-explicit", {"honest": {"HONEST"}}),
+        ("data-ir-dishonest-explicit", {"deceptive": {"DECEPTIVE"}}),
     ],
     "company_assistant": [
         ("data-company-assistant-roleplay",
@@ -112,7 +113,7 @@ def _judge_re(model_fname: str) -> re.Pattern:
 def find_scored_file(dir_path: Path, dirname: str, model_fname: str):
     """Return (path, {conversation k: label}) for the selected scored file."""
     candidates = []  # (ts, path)
-    if dirname == "data-more-roleplay":
+    if dirname.startswith("data-more-roleplay"):
         for f in os.listdir(dir_path):
             m = SCORED_RE.match(f)
             if m and m.group("model") == model_fname:
